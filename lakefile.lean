@@ -14,6 +14,6 @@ package «zcashSighash» where
 
 @[default_target] lean_lib «ZcashSighash» {}
 
-/-- BLAKE2b on RFC 7693's test vector. -/
+/-- BLAKE2b on RFC 7693's test vector, and the specification on ZIP 244's. -/
 @[default_target] lean_lib «Tests» where
-  roots := #[`ZcashSighash.Tests.Blake2b]
+  roots := #[`ZcashSighash.Tests.Blake2b, `ZcashSighash.Tests.Zip244, `ZcashSighash.Tests.Spec]

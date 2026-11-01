@@ -7,8 +7,11 @@ A Zcash transaction's identifier and the digests its signatures sign are defined
 
 The specification takes the hash as a parameter: it holds for every hash function, and its
 theorems say when they need one without collisions. BLAKE2b enters only through
-`ZcashSighash/Verifier/Blake2b.lean`, checked on RFC 7693's test vector. The specification's
-sources are in `spec/`, copied verbatim from the ZIPs with a header naming their commit.
+`ZcashSighash/Verifier/Blake2b.lean`, checked on RFC 7693's test vector. With it, the
+specification gives the identifier, auth digest and signature digests of each of ZIP 244's ten
+test vectors, and the digests the crates' tests give for two version 6 transactions
+(`ZcashSighash/Tests/Spec.lean`). The specification's sources are in `spec/`,
+copied verbatim from the ZIPs with a header naming their commit.
 
 ## Verifying the proofs
 

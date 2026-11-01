@@ -160,6 +160,33 @@ def txinInput (t : Transparent) (i : Fin t.vin.length) : Personalization × List
   (personal "Zcash___TxInHash", t.vin[i].prevout.encode ++ i64 t.vin[i].spent.value ++
     script t.vin[i].spent.scriptPubKey ++ u32 t.vin[i].nSequence)
 
+/-- The inputs §A.2 hashes. -/
+def saplingAuthInputs (f : Format) (s : Sapling) : List (Personalization × List Byte) :=
+  let p := if f.IsV6 then personal "ZTxAuthSapliH_v6" else personal "ZTxAuthSapliHash"
+  [(p, []), (p, s.spends.flatMap (·.zkproof.toList) ++ s.spends.flatMap (·.spendAuthSig.toList) ++
+    s.outputs.flatMap (·.zkproof.toList) ++ s.bindingSig.toList ++
+    if f.IsV6 ∧ s.spends ≠ [] then s.anchor.toList else [])]
+
+/-- The inputs §A.3 hashes, with the personalizations `p`. -/
+def actionsAuthInputs (p : Personalizations) (v6 : Bool) (b : OrchardBundle) :
+    List (Personalization × List Byte) :=
+  [(p.auth, []), (p.auth, b.proofs ++ b.actions.flatMap (·.spendAuthSig.toList) ++
+    b.bindingSig.toList ++ if v6 then b.anchor.toList else [])]
+
+/-- The inputs the auth digest hashes: its root, and each component's. -/
+def authInputs (tx : Transaction) : List (Personalization × List Byte) :=
+  (authPersonalization tx.header.consensusBranchId,
+    (([transparentScriptsDigest H tx.scriptSigs, saplingAuthDigest H tx.format tx.sapling,
+        if tx.format.IsV6 then actionsAuthDigest H orchardV6 true tx.orchard
+        else actionsAuthDigest H orchardV5 false tx.orchard] ++
+      match tx.format with
+      | .v5 => []
+      | .v6 ironwood => [actionsAuthDigest H ironwoodV6 true ironwood]).flatMap (·.toList))) ::
+  (personal "ZTxAuthTransHash", tx.scriptSigs.flatMap script) ::
+  saplingAuthInputs tx.format tx.sapling ++ actionsAuthInputs orchardV5 false tx.orchard ++
+    actionsAuthInputs orchardV6 true tx.orchard ++
+    match tx.format with | .v5 => [] | .v6 iw => actionsAuthInputs ironwoodV6 true iw
+
 /-- > for fully shielded transactions, `signature_digest` is equal to `txid_digest`
     (ZIP 244, Rationale); likewise for a coinbase transaction, and for any input. -/
 theorem signatureDigest_eq_txidDigest (t : Transparent) (hcb : t.IsCoinbase ∨ t.vin = [])
@@ -501,7 +528,88 @@ theorem signatureDigest_all_commits (t₁ t₂ : Transparent)
     TxIn.ext' _ _ (OutPoint.encode_injective hpo) (u32_injective hse) (i64_injective hva) hsc
   exact ⟨Transparent.ext' (TxIn.list_ext hp' hq' ha' hk') hout', hin, hh, hs, ho⟩
 
+/-- In version 6, the auth digest commits to each anchor in use (ZIP 229): equal auth digests of
+    two transactions mean equal Sapling anchors when both have a Spend, and equal Orchard and
+    Ironwood anchors when both have an Action, unless computing them finds a hash collision. -/
+theorem authDigest_v6_anchors (tx₁ tx₂ : Transaction) (iw₁ iw₂ : OrchardBundle)
+    (hf₁ : tx₁.format = .v6 iw₁) (hf₂ : tx₂.format = .v6 iw₂)
+    (hH : CollisionFreeOn H (authInputs H tx₁ ++ authInputs H tx₂))
+    (heq : tx₁.authDigest H = tx₂.authDigest H) :
+    (tx₁.sapling.spends ≠ [] → tx₂.sapling.spends ≠ [] →
+      tx₁.sapling.anchor = tx₂.sapling.anchor) ∧
+    (tx₁.orchard.actions ≠ [] → tx₂.orchard.actions ≠ [] →
+      tx₁.orchard.anchor = tx₂.orchard.anchor) ∧
+    (iw₁.actions ≠ [] → iw₂.actions ≠ [] → iw₁.anchor = iw₂.anchor) := by
+  obtain ⟨f₁, hd₁, t₁, ss₁, s₁, o₁⟩ := tx₁
+  obtain ⟨f₂, hd₂, t₂, ss₂, s₂, o₂⟩ := tx₂
+  simp only at hf₁ hf₂
+  subst hf₁ hf₂
+  -- Each component's inputs, on either side.
+  have mem : ∀ {a}, (∀ {iw : OrchardBundle} {hd t ss s o},
+      a ∈ saplingAuthInputs (.v6 iw) s ++ actionsAuthInputs orchardV5 false o ++
+        actionsAuthInputs orchardV6 true o ++ actionsAuthInputs ironwoodV6 true iw →
+      a ∈ authInputs H ⟨.v6 iw, hd, t, ss, s, o⟩) := fun h =>
+    List.mem_cons_of_mem _ (List.mem_cons_of_mem _ h)
+  unfold Transaction.authDigest node at heq
+  have hc := flatMap_injective_of_length List.Vector.toList 32 (by decide) (by simp)
+    List.Vector.toList_injective (hH _ _ _ _ (List.mem_append_left _ List.mem_cons_self)
+      (List.mem_append_right _ List.mem_cons_self) heq).2
+  simp only [Format.IsV6, ite_true, List.cons_append, List.nil_append, List.cons.injEq,
+    and_true] at hc
+  obtain ⟨-, hs, ho, hi⟩ := hc
+  refine ⟨fun h₁ h₂ => ?_, fun h₁ h₂ => ?_, fun h₁ h₂ => ?_⟩
+  · have hn₁ : ¬(s₁.spends = [] ∧ s₁.outputs = []) := fun h => h₁ h.1
+    have hn₂ : ¬(s₂.spends = [] ∧ s₂.outputs = []) := fun h => h₂ h.1
+    simp only [saplingAuthDigest, hn₁, hn₂, ite_false] at hs
+    have h := hH.eq
+      (List.mem_append_left _ (mem (List.mem_append_left _ (List.mem_append_left _
+        (List.mem_append_left _ (List.mem_cons_of_mem _ List.mem_cons_self))))))
+      (List.mem_append_right _ (mem (List.mem_append_left _ (List.mem_append_left _
+        (List.mem_append_left _ (List.mem_cons_of_mem _ List.mem_cons_self)))))) hs
+    simp only [Format.IsV6, ne_eq, h₁, h₂, not_false_eq_true, and_self, ite_true] at h
+    exact List.Vector.toList_injective (List.append_inj' h (by simp)).2
+  · simp only [actionsAuthDigest, h₁, h₂, ite_false] at ho
+    have h := hH.eq
+      (List.mem_append_left _ (mem (List.mem_append_left _ (List.mem_append_right _
+        (List.mem_cons_of_mem _ List.mem_cons_self)))))
+      (List.mem_append_right _ (mem (List.mem_append_left _ (List.mem_append_right _
+        (List.mem_cons_of_mem _ List.mem_cons_self))))) ho
+    exact List.Vector.toList_injective (List.append_inj' h (by simp)).2
+  · simp only [actionsAuthDigest, h₁, h₂, ite_false] at hi
+    have h := hH.eq
+      (List.mem_append_left _ (mem (List.mem_append_right _
+        (List.mem_cons_of_mem _ List.mem_cons_self))))
+      (List.mem_append_right _ (mem (List.mem_append_right _
+        (List.mem_cons_of_mem _ List.mem_cons_self)))) hi
+    exact List.Vector.toList_injective (List.append_inj' h (by simp)).2
+
 end
+
+/-- A version 6 transaction with its Sapling, Orchard and Ironwood anchors replaced. -/
+def Transaction.reanchor (tx : Transaction) (iw : OrchardBundle) (a b c : Bytes 32) :
+    Transaction :=
+  { tx with format := .v6 { iw with anchor := c }, sapling := { tx.sapling with anchor := a },
+            orchard := { tx.orchard with anchor := b } }
+
+/-- In version 6, re-anchoring changes neither the transaction identifier (ZIP 229: "This lets
+    the anchor be updated … without changing the transaction ID") nor any signature digest. -/
+theorem txid_reanchor (H : Hash) (tx : Transaction) (iw : OrchardBundle) (hf : tx.format = .v6 iw)
+    (a b c : Bytes 32) : (tx.reanchor iw a b c).txid H = tx.txid H := by
+  simp [Transaction.reanchor, Transaction.txid, Transaction.version, Transaction.orchardDigest,
+    hf, Format.IsV6, saplingDigest, saplingSpendsDigest, saplingSpendsNoncompactDigest,
+    saplingSpendsCompactDigest, saplingOutputsDigest, saplingOutputsCompactDigest,
+    saplingOutputsMemosDigest, saplingOutputsNoncompactDigest, actionsDigest]
+
+/-- Re-anchoring a version 6 transaction leaves every signature digest unchanged, so its
+    signatures stay valid when its anchors are updated. -/
+theorem signatureDigest_reanchor (H : Hash) (tx : Transaction) (iw : OrchardBundle)
+    (hf : tx.format = .v6 iw) (a b c : Bytes 32) (input : SignableInput tx.transparent) :
+    (tx.reanchor iw a b c).signatureDigest H input = tx.signatureDigest H input := by
+  simp [Transaction.reanchor, Transaction.signatureDigest, Transaction.version,
+    Transaction.orchardDigest, hf, Format.IsV6, saplingDigest, saplingSpendsDigest,
+    saplingSpendsNoncompactDigest, saplingSpendsCompactDigest, saplingOutputsDigest,
+    saplingOutputsCompactDigest, saplingOutputsMemosDigest, saplingOutputsNoncompactDigest,
+    actionsDigest]
 
 -- The build fails if the theorem rests on anything beyond Lean's three axioms.
 /--

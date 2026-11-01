@@ -13,6 +13,12 @@ test vectors, and the digests the crates' tests give for two version 6 transacti
 (`ZcashSighash/Tests/Spec.lean`). The specification's sources are in `spec/`,
 copied verbatim from the ZIPs with a header naming their commit.
 
+`ZcashSighash/Verifier/` transcribes, statement by statement, the code that computes these
+digests in `zcash_primitives` 0.31.0 and the crates it calls (`zcash_transparent` 0.11.0,
+`zcash_encoding` 0.5.0, `orchard` 0.16.0, `sapling-crypto` 0.9.0); each definition cites the
+lines it transcribes, and CI checks each crate against its crates.io checksum. The transcription
+gives the same twelve transactions' digests (`ZcashSighash/Tests/Verifier.lean`).
+
 ## Verifying the proofs
 
 A successful build is the verification: building re-checks every proof. Install

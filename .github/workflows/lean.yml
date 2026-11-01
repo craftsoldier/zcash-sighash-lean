@@ -22,6 +22,46 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The crates `ZcashSighash/Verifier/` transcribes, fetched from crates.io: each `.crate`
+      # file's SHA-256 must be the pinned one and the crates.io index's, and each source file
+      # the Lean cites must be in it. One pin per line:
+      #   <name> <version> <sha256> <cited files>
+      - name: Check the pinned crates
+        env:
+          PINS: |
+            zcash_primitives 0.31.0 50ad9ffda3d83c35e401b2f914980762f201ab40525cb0aab67b8d91e180e7df src/encoding.rs src/transaction/mod.rs src/transaction/txid.rs src/transaction/sighash.rs src/transaction/sighash_v5.rs src/transaction/sighash_v6.rs src/transaction/tests.rs src/transaction/tests/data.rs
+            zcash_transparent 0.11.0 eb804d0179500e9543502dd6dfa178826617107897e6fe171241e5b767b7a0dd src/address.rs src/bundle.rs src/sighash.rs
+            zcash_encoding 0.5.0 b2871fd3c37eaeb635c815a9c97495553bf8237a481b9f8b37eba661764bf937 src/lib.rs
+            zcash_protocol 0.11.0 266da226b6be42545b9fc299f1def9f5e525764845b8afa874f167155de943ba src/constants.rs src/value.rs
+            orchard 0.16.0 4ae7ceb7b5387bd76cf3c0712f57708795c925cecf097036cedb60b5c3706e8f src/lib.rs src/bundle.rs src/bundle/commitments.rs src/action.rs src/note.rs
+            sapling-crypto 0.9.0 4a2cbdcfeef20006adf72699cd466f21fe349674277cc05d3fc9b7302db7b182 src/bundle.rs
+            nonempty 0.11.0 549e471b99ccaf2f89101bec68f4d244457d5a95a9c3d0672e9564124397741d src/lib.rs
+            blake2b_simd 1.0.4 b79834656f71332577234b50bfc009996f7449e0c056884e6a02492ded0ca2f3 src/lib.rs
+        run: |
+          set -euo pipefail
+          while read -r name version sha files; do
+            [ -n "$name" ] || continue
+            lower=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')
+            case ${#lower} in
+              1) prefix=1 ;;
+              2) prefix=2 ;;
+              3) prefix=3/${lower:0:1} ;;
+              *) prefix=${lower:0:2}/${lower:2:2} ;;
+            esac
+            indexed=$(curl -sSfL "https://index.crates.io/$prefix/$lower" \
+              | jq -r --arg v "$version" 'select(.vers == $v) | .cksum')
+            [ "$indexed" = "$sha" ] \
+              || { echo "::error::$name $version: index checksum $indexed, pinned $sha"; exit 1; }
+            tmp=$(mktemp -d)
+            curl -sSfL -o "$tmp/crate" "https://static.crates.io/crates/$name/$name-$version.crate"
+            echo "$sha  $tmp/crate" | sha256sum -c -
+            tar -xzf "$tmp/crate" -C "$tmp"
+            for f in $files; do
+              [ -f "$tmp/$name-$version/$f" ] \
+                || { echo "::error::$name $version has no $f"; exit 1; }
+            done
+            echo "$name $version: matches its pin"
+          done <<< "$PINS"
       - uses: leanprover/lean-action@24581d74d674803a25a81b10b059c5c0cdd344c6 # v1.6.2
         with:
           auto-config: "false"

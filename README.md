@@ -29,6 +29,14 @@ or Ironwood bundle in the other's pool, a script longer than `MAX_COMPACT_SIZE`,
 authorizing context without one entry per input. A signed transparent input must carry a hash
 type `SighashType::parse` accepts and its coin's value and `scriptPubKey`.
 
+`ZcashSighash/Proofs/Seams.lean` states what the Rust does outside those hypotheses: an empty
+transparent bundle is hashed as three empty digests; an undefined hash type kept by
+`SighashType::from_raw` is hashed as `SIGHASH_ALL` under its own byte; a script longer than
+`MAX_COMPACT_SIZE` panics; an Ironwood bundle in the Orchard slot panics in version 5 and takes
+Ironwood's personalizations in version 6; and in version 5 each Sapling spend's own anchor is
+hashed. Checking hash types, and building transactions only from their encoding, is the
+caller's.
+
 ## Verifying the proofs
 
 A successful build is the verification: building re-checks every proof. Install

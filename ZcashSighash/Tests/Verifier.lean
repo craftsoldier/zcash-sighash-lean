@@ -262,7 +262,7 @@ def checkRead (ctx : Transparent.AuthorizingContext) (bytes rest : List Byte) (t
 def v6Encoded : List Byte := hex "0600008098b684d8d90a19770000000001000000000000000000"
 def v6Trailer : List Byte := "next-record".toUTF8.toList.map (BitVec.ofNat 8 ·.toNat)
 
-/- As its test checks (lines 88–95): the reader leaves the trailer, and every truncation is an
+/- As its test checks (lines 89–98): the reader leaves the trailer, and every truncation is an
    error. -/
 #guard checkRead ⟨[], []⟩ v6Encoded v6Trailer
   "78296c68a370c2e1f058d997c81c7b011c4562c52fc5ca2994ad59cd179fbe9e" none
@@ -283,11 +283,23 @@ def readsV4 (bytes : List Byte) (p : TxVersion → Bool) : Bool :=
   | some (.readV4 v, _) => p v
   | _ => false
 
-/- A header without the overwintered bit is a pre-Overwinter version, whatever its number; with
-   it, the version group ID must be the version's own; a version of 0 is an error. -/
+/-- Whether `TxVersion::read` reads all of `bytes` as a version that `p` accepts. -/
+def readsVersion (bytes : List Byte) (p : TxVersion → Bool) : Bool :=
+  match Read.readTxVersion bytes with
+  | some (v, []) => p v
+  | _ => false
+
+/- A header without the overwintered bit is a pre-Overwinter version, whatever its number, and
+   goes to `read_v4`, as versions 3 and 4 do; with it, the version group ID must be the version's
+   own, and version 7 (`nutachyon` only) is unknown; a version of 0 is an error. -/
 #guard readsV4 (hex "05000000") fun | .sprout v => v == 5 | _ => false
+#guard readsV4 (hex "030000807082c403") fun | .v3 => true | _ => false
 #guard readsV4 (hex "0400008085202f89") fun | .v4 => true | _ => false
-#guard (Read.read ⟨[], []⟩ (hex "0500008098b684d8")).isNone
-#guard (Read.read ⟨[], []⟩ (hex "00000000")).isNone
+#guard readsVersion (hex "050000800a27a726") fun | .v5 => true | _ => false
+#guard (Read.readTxVersion (hex "0500008098b684d8")).isNone
+#guard readsVersion (hex "0600008098b684d8") fun | .v6 => true | _ => false
+#guard (Read.readTxVersion (hex "0600008068636174")).isNone
+#guard (Read.readTxVersion (hex "0700008068636174")).isNone
+#guard (Read.readTxVersion (hex "00000000")).isNone
 
 end ZcashSighash.Tests

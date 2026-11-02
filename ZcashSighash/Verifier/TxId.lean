@@ -42,8 +42,8 @@ def TxVersion.versionGroupId : TxVersion → BitVec 32
   | .v5 => 0x26A7270A
   | .v6 => 0xD884B698
 
-/-- `TxVersion::write` (lines 148–154): the header, then the version group ID from version 3 on.
-    -/
+/-- `TxVersion::write` (lines 148–154): the header, then the version group ID from version 3
+    on. -/
 def TxVersion.write (v : TxVersion) : List Byte :=
   toLeBytes 4 v.header ++
     match v with

@@ -2,16 +2,17 @@
 `zcash_primitives` 0.31.0's `Transaction::read` for version 5 and 6 transactions
 (`src/transaction/mod.rs`, `src/transaction/components/{sapling,orchard}.rs`), and the readers it
 calls in `zcash_transparent` 0.11.0 and `zcash_encoding` 0.5.0, under the default features (no
-`zip-233`). A read error is `none`. Zebra and Zakura parse blocks with their own chain crates;
-this is the librustzcash reader, not theirs.
+`zip-233`). A read error is `none`. An earlier version goes to `read_v4`, which is not
+transcribed: `read` stops there (`.readV4`), where the crate reads on and may still fail. Zebra
+and Zakura parse blocks with their own chain crates; this is the librustzcash reader, not theirs.
 
 Checks that only reject more inputs are left out: that a byte string is a valid curve point or
 field element (`read_value_commitment`, `read_rk`, `read_base`, `read_anchor`, ...), a valid
 consensus branch (`BranchId::try_from`), Orchard flags valid for the bundle version
 (`read_flags`), a value balance in range (`read_amount`), an Orchard bundle version for the
-branch, and a canonical Orchard proof length (`try_from_parts`). So what this reader returns on
-success is what `zcash_primitives` returns, and `Proofs/Read.lean` is about what a successful
-read returns.
+branch, and a canonical Orchard proof length (`try_from_parts`). So a version 5 or 6 transaction
+this reader returns (`.tx`) is what `zcash_primitives` returns, and `Proofs/Read.lean` is about
+what a successful read returns.
 -/
 module
 

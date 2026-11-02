@@ -341,29 +341,34 @@ def withV6Action (branchId : BitVec 32) (ironwood : Bool) : List Byte :=
   hex "0600008098b684d8" ++ toLeBytes 4 branchId ++ hex "0000000001000000" ++ hex "00000000" ++
     if ironwood then hex "00" ++ bundle else bundle ++ hex "00"
 
-/-- Whether `Transaction::write` writes what `Transaction::read` read from `withV6Action`: the
-    same bytes, or an error. -/
-def writesV6Action (branchId : BitVec 32) (ironwood : Bool) : Option Bool :=
+/-- What `Transaction::write` writes of what `Transaction::read` read from `withV6Action`:
+    whether its bytes are the ones read, or none for a write error. -/
+def writesV6Action (branchId : BitVec 32) (ironwood : Bool) : Option (Option Bool) :=
   match Read.read ⟨[], []⟩ (withV6Action branchId ironwood) with
   | some (.tx tx, []) =>
     match tx.write ([] : VecU8) with
-    | .ok w => some (w == withV6Action branchId ironwood)
-    | .error _ => some false
+    | .ok w => some (some (w == withV6Action branchId ironwood))
+    | .error _ => some none
   | _ => none
 
 /- `write_v6_bundle` writes back an Orchard bundle read under NU6.3 (`0x37A5165B`) or NU7
    (`0x77190AD9`), whose bundle version is `orchard_v3`, and rejects one read under NU5, NU6 or
-   NU6.1 (`orchard_insecure_v1`), NU6.2 (`orchard_v2`) or Canopy (none), as Zebra does when it
-   parses them. An Ironwood bundle, `ironwood_v3` from NU6.3 on, is written back. -/
-#guard writesV6Action 0x37A5165B false == some true
-#guard writesV6Action 0x77190AD9 false == some true
-#guard writesV6Action 0xC2D6D0B4 false == some false
-#guard writesV6Action 0xC8E71055 false == some false
-#guard writesV6Action 0x4DEC4DF0 false == some false
-#guard writesV6Action 0x5437F330 false == some false
-#guard writesV6Action 0xE9FF75A6 false == some false
-#guard writesV6Action 0x37A5165B true == some true
-#guard writesV6Action 0x77190AD9 true == some true
+   NU6.1 (`orchard_insecure_v1`) or NU6.2 (`orchard_v2`), as Zebra does when it parses them. An
+   Ironwood bundle, `ironwood_v3` from NU6.3 on, is written back, and has no version before. A
+   bundle with no version, as under Canopy, the crate's `read_bundle` already rejects (lines
+   114–120), as it would every fixture here for its zero-byte points; these test the
+   transcription. -/
+#guard writesV6Action 0x37A5165B false == some (some true)
+#guard writesV6Action 0x77190AD9 false == some (some true)
+#guard writesV6Action 0xC2D6D0B4 false == some none
+#guard writesV6Action 0xC8E71055 false == some none
+#guard writesV6Action 0x4DEC4DF0 false == some none
+#guard writesV6Action 0x5437F330 false == some none
+#guard writesV6Action 0xE9FF75A6 false == some none
+#guard writesV6Action 0x37A5165B true == some (some true)
+#guard writesV6Action 0x77190AD9 true == some (some true)
+#guard writesV6Action 0x5437F330 true == some none
+#guard writesV6Action 0xC2D6D0B4 true == some none
 
 /-! ## Values -/
 

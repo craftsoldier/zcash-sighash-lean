@@ -1,10 +1,10 @@
 /-
 What `zcash_primitives`' writer does with what its reader returns: a version 5 or 6 transaction
 `Transaction::read` returns is written back as exactly the bytes it was read from
-(`read_write_eq`), so reading what was written gives the same transaction back
-(`write_read`). In version 6 this needs a consensus branch ID of NU6.3 or later, under which the
-Orchard bundle versions are the ones `write_v6_bundle` accepts; under an earlier one, writing a
-transaction with an Orchard bundle fails (`write_v6_earlier`).
+(`write_eq_read_bytes`), so reading what was written gives the same transaction back
+(`write_read`). In version 6 with an Orchard or Ironwood bundle this needs a consensus branch ID
+of NU6.3 or later, under which the bundle versions are the ones `write_v6_bundle` accepts; under
+NU5 to NU6.2, writing a transaction with an Orchard bundle fails (`write_v6_earlier`).
 -/
 module
 
@@ -1022,7 +1022,7 @@ theorem readV6_writes {ctx : Transparent.AuthorizingContext} {v : TxVersion} {s 
     it was read from**; in version 6 with an Orchard or Ironwood bundle, under a branch of the
     third Orchard protocol revision (NU6.3 or NU7), as Zebra requires of every version 6
     transaction it parses. -/
-theorem read_write_eq {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
+theorem write_eq_read_bytes {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
     {tx : TransactionData} (h : read ctx s = some (.tx tx, s'))
     (hrev : tx.version = .v6 → tx.orchardBundle.isSome ∨ tx.ironwoodBundle.isSome →
       orchardProtocolRevision tx.consensusBranchId = some .v3) :
@@ -1040,14 +1040,13 @@ theorem read_write_eq {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
     · rw [readTxVersion_write hv, hver, List.append_assoc]
 
 /-- **Reading what `write` writes of a version 5 or 6 transaction `zcash_primitives` read gives
-    the same transaction back**, whatever follows it, as `zebra-state` relies on when it stores
-    transactions with `write` and loads them with `read`. -/
+    the same transaction back**, whatever follows it. -/
 theorem write_read {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
     {tx : TransactionData} (h : read ctx s = some (.tx tx, s'))
     (hrev : tx.version = .v6 → tx.orchardBundle.isSome ∨ tx.ironwoodBundle.isSome →
       orchardProtocolRevision tx.consensusBranchId = some .v3) :
     ∃ w, tx.write ([] : VecU8) = .ok w ∧ ∀ r, read ctx (w ++ r) = some (.tx tx, r) := by
-  obtain ⟨w, hw, rfl⟩ := read_write_eq h hrev
+  obtain ⟨w, hw, rfl⟩ := write_eq_read_bytes h hrev
   obtain ⟨w', hs, hr⟩ := consumes_read ctx _ _ _ h
   obtain rfl := List.append_cancel_right hs
   exact ⟨w, hw, hr⟩
@@ -1057,25 +1056,23 @@ theorem bind_error {α β : Type} (x : IoResult α) {f : α → IoResult β}
     (hf : ∀ a, f a = .error ()) : (x >>= f) = .error () := by
   cases x <;> simp [bind, Except.bind, hf]
 
-/-- **Writing a version 6 transaction `zcash_primitives` read, with an Orchard bundle under a
-    branch before NU6.3, fails**: `read_v6_bundle` gives the bundle an earlier version, which
-    `write_v6_bundle` rejects. Zebra rejects such a transaction when it parses it, so every one it
-    parses can be written. -/
+/-- **Writing a version 6 transaction `zcash_primitives` read, with an Orchard bundle under NU5
+    to NU6.2, fails**: `read_v6_bundle` gives the bundle the version `orchard_insecure_v1` or
+    `orchard_v2`, which `write_v6_bundle` rejects. Zebra rejects such a transaction when it parses
+    it, so every one it parses can be written. -/
 theorem write_v6_earlier {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
-    {tx : TransactionData} (_h : read ctx s = some (.tx tx, s')) (hv : tx.version = .v6)
-    (b : Orchard.Bundle) (hb : tx.orchardBundle = some b) (hp : b.valuePool = .orchard)
-    (hrev : orchardProtocolRevision tx.consensusBranchId ≠ some .v3) (buf : VecU8) :
+    {tx : TransactionData} (h : read ctx s = some (.tx tx, s')) (hv : tx.version = .v6)
+    (b : Orchard.Bundle) (hb : tx.orchardBundle = some b)
+    (hrev : orchardProtocolRevision tx.consensusBranchId = some .insecureV1 ∨
+      orchardProtocolRevision tx.consensusBranchId = some .v2) (buf : VecU8) :
     tx.write buf = .error () := by
+  have hp := (read_wellFormed h).orchardPool b hb
   have hw : ∀ buf' : VecU8,
       writeV6OrchardBundle tx.consensusBranchId tx.orchardBundle buf' = .error () := by
     intro buf'
     simp only [writeV6OrchardBundle, hb, hp]
-    cases hr : orchardProtocolRevision tx.consensusBranchId with
-    | none => simp [bundleVersionForBranch, hr, bind, Except.bind]
-    | some r =>
-      cases r with
-      | v3 => exact absurd hr hrev
-      | _ => simp [bundleVersionForBranch, hr, checkV6BundleVersion, bind, Except.bind]
+    rcases hrev with hr | hr <;>
+      simp [bundleVersionForBranch, hr, checkV6BundleVersion, bind, Except.bind]
   simp only [TransactionData.write, hv, TransactionData.writeV6]
   split
   · rfl
@@ -1083,11 +1080,11 @@ theorem write_v6_earlier {ctx : Transparent.AuthorizingContext} {s s' : List Byt
 
 -- The build fails if a theorem rests on anything beyond Lean's three axioms.
 /--
-info: 'ZcashSighash.Verifier.Read.read_write_eq' depends on axioms:
+info: 'ZcashSighash.Verifier.Read.write_eq_read_bytes' depends on axioms:
 [propext, Classical.choice, Quot.sound]
 -/
 #guard_msgs (whitespace := lax) in
-#print axioms read_write_eq
+#print axioms write_eq_read_bytes
 
 /--
 info: 'ZcashSighash.Verifier.Read.write_read' depends on axioms:
@@ -1097,7 +1094,8 @@ info: 'ZcashSighash.Verifier.Read.write_read' depends on axioms:
 #print axioms write_read
 
 /--
-info: 'ZcashSighash.Verifier.Read.write_v6_earlier' depends on axioms: [propext, Quot.sound]
+info: 'ZcashSighash.Verifier.Read.write_v6_earlier' depends on axioms:
+[propext, Classical.choice, Quot.sound]
 -/
 #guard_msgs (whitespace := lax) in
 #print axioms write_v6_earlier

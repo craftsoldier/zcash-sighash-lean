@@ -133,8 +133,9 @@ def writeOrchardBundle {W : Type} [Write W] (bundle : Option Orchard.Bundle) (wr
   | none => CompactSize.write writer 0
 
 /-- `write_v6_bundle` (lines 378–386), the bundle's version that of its pool under
-    `consensusBranchId`. No version (a pool the branch does not support) is an error, as
-    `read_v6_bundle` gives such a bundle none. -/
+    `consensusBranchId`. No version (a pool the branch does not support, or an unknown branch ID)
+    is an error: the crate holds no such bundle, as `read_bundle` rejects it (`components/
+    orchard.rs`, lines 114–120). -/
 def writeV6OrchardBundle {W : Type} [Write W] (consensusBranchId : BitVec 32)
     (bundle : Option Orchard.Bundle) (writer : W) : IoResult W := do
   if let some bundle := bundle then

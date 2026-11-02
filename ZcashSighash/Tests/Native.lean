@@ -108,4 +108,26 @@ where
 
 #guard v6Vectors.map checkNativeV6 = [true, true]
 
+/-! ## A coinbase input's `scriptSig` -/
+
+/-- A `push_num` that writes the height's low byte after a one-byte push, and a genesis script:
+    enough to tell the cases of `Input::coinbase_script` apart. -/
+def testCoinbaseScript : CoinbaseScript :=
+  ⟨fun h => [0x01, h.setWidth 8], [0x04, 0xff, 0xff, 0x00, 0x1d]⟩
+
+-- A coinbase input above genesis: `push_num(height)` then its data.
+#guard (Native.Input.coinbase 0x2a [0xaa, 0xbb] 0).coinbaseScript testCoinbaseScript ==
+  some [0x01, 0x2a, 0xaa, 0xbb]
+
+-- The genesis coinbase input: its data is the whole genesis script.
+#guard (Native.Input.coinbase 0 [0x04, 0xff, 0xff, 0x00, 0x1d] 0).coinbaseScript
+    testCoinbaseScript == some [0x04, 0xff, 0xff, 0x00, 0x1d]
+
+-- A height 0 input with other data has no `scriptSig` (`coinbase_script`'s `expect` panics).
+#guard (Native.Input.coinbase 0 [0xaa] 0).coinbaseScript testCoinbaseScript == none
+
+-- A non-coinbase input has none to rebuild.
+#guard (Native.Input.prevOut ⟨List.Vector.replicate 32 1, 0⟩ [0xaa] 0).coinbaseScript
+    testCoinbaseScript == none
+
 end ZcashSighash.Tests

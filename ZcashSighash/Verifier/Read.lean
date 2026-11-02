@@ -10,9 +10,9 @@ Checks that only reject more inputs are left out: that a byte string is a valid 
 field element (`read_value_commitment`, `read_rk`, `read_base`, `read_anchor`, ...), a valid
 consensus branch (`BranchId::try_from`), Orchard flags valid for the bundle version
 (`read_flags`), a value balance in range (`read_amount`), an Orchard bundle version for the
-branch, and a canonical Orchard proof length (`try_from_parts`). So a version 5 or 6 transaction
-this reader returns (`.tx`) is what `zcash_primitives` returns, and `Proofs/Read.lean` is about
-what a successful read returns.
+branch, and a canonical Orchard proof length (`try_from_parts`). So every version 5 or 6
+transaction `zcash_primitives` returns, this reader returns too (`.tx`), and `Proofs/Read.lean`
+is about what a successful read returns.
 -/
 module
 
@@ -201,25 +201,30 @@ def readHeaderFragment : Parser (BitVec 32 × BitVec 32 × BitVec 32) := do
   pure (BitVec.ofNat 32 consensusBranchId, BitVec.ofNat 32 lockTime, BitVec.ofNat 32 expiryHeight)
 
 /-- `read_v5` (lines 1089–1116), which `Transaction::read` (lines 973–986) calls for a version 5
-    header. -/
-def readV5 (ctx : Transparent.AuthorizingContext) : Parser TransactionData := do
+    header. `from_data_v5`'s `assert_eq!(data.version, TxVersion::V5)` (line 937) is left out:
+    `Transaction::read` passes only `V5`. -/
+def readV5 (ctx : Transparent.AuthorizingContext) (version : TxVersion) :
+    Parser TransactionData := do
   let (consensusBranchId, lockTime, expiryHeight) ← readHeaderFragment
   let transparentBundle ← readTransparent ctx
   let saplingBundle ← readSaplingV5
   let orchardBundle ← readOrchardBundle .orchard
-  pure ⟨.v5, consensusBranchId, lockTime, expiryHeight, transparentBundle, none, saplingBundle,
-    orchardBundle, none⟩
+  pure ⟨version, consensusBranchId, lockTime, expiryHeight, transparentBundle, none,
+    saplingBundle, orchardBundle, none⟩
 
 /-- `read_v6` (lines 1118–1149), which `Transaction::read` calls for a version 6 header. Its
-    `read_v6_header_fragment` (lines 1172–1183) is `read_header_fragment` without `zip-233`. -/
-def readV6 (ctx : Transparent.AuthorizingContext) : Parser TransactionData := do
+    `read_v6_header_fragment` (lines 1172–1183) is `read_header_fragment` without `zip-233`.
+    `from_data_v6`'s `assert_eq!(data.version, TxVersion::V6)` (line 951) is left out:
+    `Transaction::read` passes only `V6`. -/
+def readV6 (ctx : Transparent.AuthorizingContext) (version : TxVersion) :
+    Parser TransactionData := do
   let (consensusBranchId, lockTime, expiryHeight) ← readHeaderFragment
   let transparentBundle ← readTransparent ctx
   let saplingBundle ← readSaplingV5
   let orchardBundle ← readOrchardBundle .orchard
   let ironwoodBundle ← readOrchardBundle .ironwood
-  pure ⟨.v6, consensusBranchId, lockTime, expiryHeight, transparentBundle, none, saplingBundle,
-    orchardBundle, ironwoodBundle⟩
+  pure ⟨version, consensusBranchId, lockTime, expiryHeight, transparentBundle, none,
+    saplingBundle, orchardBundle, ironwoodBundle⟩
 
 /-- `TxVersion::read` (lines 89–115), without `V7`, with `V3_TX_VERSION` to `V6_TX_VERSION` and
     `V3_VERSION_GROUP_ID` to `V6_VERSION_GROUP_ID` (`zcash_protocol` 0.11.0, `src/constants.rs`,
@@ -251,7 +256,7 @@ def read (ctx : Transparent.AuthorizingContext) : Parser ReadOutcome := do
   let version ← readTxVersion
   match version with
   | .sprout _ | .v3 | .v4 => pure (.readV4 version)
-  | .v5 => ReadOutcome.tx <$> readV5 ctx
-  | .v6 => ReadOutcome.tx <$> readV6 ctx
+  | .v5 => ReadOutcome.tx <$> readV5 ctx version
+  | .v6 => ReadOutcome.tx <$> readV6 ctx version
 
 end ZcashSighash.Verifier.Read

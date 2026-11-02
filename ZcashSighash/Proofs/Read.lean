@@ -162,7 +162,7 @@ theorem readOrchardBundle_pool {pool : Orchard.ValuePool} {s s' : List Byte}
 /-- **Every version 5 transaction `zcash_primitives` reads is `WellFormed`**: the digest
     theorems' hypothesis holds of what parsing returns. -/
 theorem readV5_wellFormed {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
-    {tx : TransactionData} (h : readV5 ctx s = some (tx, s')) : WellFormed tx := by
+    {tx : TransactionData} (h : readV5 ctx .v5 s = some (tx, s')) : WellFormed tx := by
   obtain ⟨_, s₁, -, h⟩ := Parser.bind_eq_some.mp h
   obtain ⟨t, s₂, ht, h⟩ := Parser.bind_eq_some.mp h
   obtain ⟨sap, s₃, hs, h⟩ := Parser.bind_eq_some.mp h
@@ -176,7 +176,7 @@ theorem readV5_wellFormed {ctx : Transparent.AuthorizingContext} {s s' : List By
 
 /-- **Every version 6 transaction `zcash_primitives` reads is `WellFormed`.** -/
 theorem readV6_wellFormed {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
-    {tx : TransactionData} (h : readV6 ctx s = some (tx, s')) : WellFormed tx := by
+    {tx : TransactionData} (h : readV6 ctx .v6 s = some (tx, s')) : WellFormed tx := by
   obtain ⟨_, s₁, -, h⟩ := Parser.bind_eq_some.mp h
   obtain ⟨t, s₂, ht, h⟩ := Parser.bind_eq_some.mp h
   obtain ⟨sap, s₃, hs, h⟩ := Parser.bind_eq_some.mp h
@@ -236,14 +236,14 @@ theorem readTxVersion_write {s s' : List Byte} {v : TxVersion}
     `read_v5`, or a version 6 header and then `read_v6`. -/
 theorem read_tx {ctx : Transparent.AuthorizingContext} {s s' : List Byte} {tx : TransactionData}
     (h : read ctx s = some (.tx tx, s')) : ∃ s₁,
-      (readTxVersion s = some (.v5, s₁) ∧ readV5 ctx s₁ = some (tx, s')) ∨
-      (readTxVersion s = some (.v6, s₁) ∧ readV6 ctx s₁ = some (tx, s')) := by
+      (readTxVersion s = some (.v5, s₁) ∧ readV5 ctx .v5 s₁ = some (tx, s')) ∨
+      (readTxVersion s = some (.v6, s₁) ∧ readV6 ctx .v6 s₁ = some (tx, s')) := by
   obtain ⟨v, s₁, hv, h⟩ := Parser.bind_eq_some.mp h
   refine ⟨s₁, ?_⟩
   cases v with
   | sprout _ | v3 | v4 => simp [pure_apply] at h
   | v5 =>
-    cases ht : readV5 ctx s₁ with
+    cases ht : readV5 ctx .v5 s₁ with
     | none => simp [Functor.map, StateT.map, ht] at h
     | some r =>
       obtain ⟨t, s₂⟩ := r
@@ -251,7 +251,7 @@ theorem read_tx {ctx : Transparent.AuthorizingContext} {s s' : List Byte} {tx : 
       obtain ⟨rfl, rfl⟩ := h
       exact .inl ⟨hv, rfl⟩
   | v6 =>
-    cases ht : readV6 ctx s₁ with
+    cases ht : readV6 ctx .v6 s₁ with
     | none => simp [Functor.map, StateT.map, ht] at h
     | some r =>
       obtain ⟨t, s₂⟩ := r
@@ -259,9 +259,9 @@ theorem read_tx {ctx : Transparent.AuthorizingContext} {s s' : List Byte} {tx : 
       obtain ⟨rfl, rfl⟩ := h
       exact .inr ⟨hv, rfl⟩
 
-/-- `read_v5` gives a version 5 transaction. -/
-theorem readV5_version {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
-    {tx : TransactionData} (h : readV5 ctx s = some (tx, s')) : tx.version = .v5 := by
+/-- `read_v5` gives a transaction of the version it is passed. -/
+theorem readV5_version {ctx : Transparent.AuthorizingContext} {v : TxVersion} {s s' : List Byte}
+    {tx : TransactionData} (h : readV5 ctx v s = some (tx, s')) : tx.version = v := by
   obtain ⟨_, s₁, -, h₁⟩ := Parser.bind_eq_some.mp h
   obtain ⟨_, s₂, -, h₂⟩ := Parser.bind_eq_some.mp h₁
   obtain ⟨_, s₃, -, h₃⟩ := Parser.bind_eq_some.mp h₂
@@ -269,9 +269,9 @@ theorem readV5_version {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
   simp only [pure_apply, Option.some.injEq, Prod.mk.injEq] at h₄
   rw [← h₄.1]
 
-/-- `read_v6` gives a version 6 transaction. -/
-theorem readV6_version {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
-    {tx : TransactionData} (h : readV6 ctx s = some (tx, s')) : tx.version = .v6 := by
+/-- `read_v6` gives a transaction of the version it is passed. -/
+theorem readV6_version {ctx : Transparent.AuthorizingContext} {v : TxVersion} {s s' : List Byte}
+    {tx : TransactionData} (h : readV6 ctx v s = some (tx, s')) : tx.version = v := by
   obtain ⟨_, s₁, -, h₁⟩ := Parser.bind_eq_some.mp h
   obtain ⟨_, s₂, -, h₂⟩ := Parser.bind_eq_some.mp h₁
   obtain ⟨_, s₃, -, h₃⟩ := Parser.bind_eq_some.mp h₂

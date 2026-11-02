@@ -937,6 +937,11 @@ structure ContextFits (b : Transparent.Bundle) : Prop where
   scripts : b.authorization.inputScriptpubkeys.length = b.vin.length
   scriptLength : ∀ s ∈ b.authorization.inputScriptpubkeys, s.code.length ≤ MAX_COMPACT_SIZE
 
+/-- The authorizing context fits where the digests read it: in a bundle with inputs that is not
+    a coinbase (`for_bundle`, `transparent_sig_digest`). -/
+def ContextFitsIfRead (b : Transparent.Bundle) : Prop :=
+  (b.isCoinbase || b.vin.isEmpty) = false → ContextFits b
+
 /-- With one amount per input, the specification's spent values are the authorizing
     context's amounts. -/
 theorem toSpec_amounts (b : Transparent.Bundle) (hc : ContextFits b) :
@@ -1136,7 +1141,7 @@ theorem transparentSigDigest_transparent (b : Transparent.Bundle)
 
 /-- `transparent_sig_digest` gives §S.2's transparent signature digest. -/
 theorem transparentSigDigest_eq (b : Transparent.Bundle) (hne : b.vin ≠ [] ∨ b.vout ≠ [])
-    (hk : ∀ o ∈ b.vout, o.scriptPubkey.code.length ≤ MAX_COMPACT_SIZE) (hc : ContextFits b)
+    (hk : ∀ o ∈ b.vout, o.scriptPubkey.code.length ≤ MAX_COMPACT_SIZE) (hc' : ContextFitsIfRead b)
     (d : Option TransparentInputsDigests) (hd : InputsDigestsFit b d)
     (input : SignableInput) (sinput : Spec.SignableInput b.toSpec) (hr : InputRel b input sinput) :
     transparentSigDigest (some (b, txidDigestsOf b)) d input =
@@ -1149,6 +1154,7 @@ theorem transparentSigDigest_eq (b : Transparent.Bundle) (hne : b.vin ≠ [] ∨
     exact hashTransparentTxidData_some b hne
   · have hcb' : ¬(b.toSpec.IsCoinbase ∨ b.toSpec.vin = []) := by
       simpa [isCoinbase_toSpec, hvin, List.isEmpty_iff] using hcb
+    have hc := hc' (by simpa using hcb)
     rw [Spec.transparentSigDigest, ite_eq_right hcb']
     rcases hr with _ | ⟨input, ht, i, hh, hi, hv, hs⟩
     · exact transparentSigDigest_shielded b hc hcb d hd
@@ -1168,20 +1174,22 @@ def zip244DigestsOf (tx : TransactionData) : Zip244Digests :=
 
 /-- The input digests `TransparentInputsDigests::for_bundle` precomputes are ones
     `transparent_sig_digest` accepts. -/
-theorem forBundle_fits (b : Transparent.Bundle) (hc : ContextFits b)
+theorem forBundle_fits (b : Transparent.Bundle) (hc : ContextFitsIfRead b)
     (d : Option TransparentInputsDigests)
     (hd : TransparentInputsDigests.forBundle b = some d) : InputsDigestsFit b d := by
   unfold TransparentInputsDigests.forBundle at hd
   split at hd
   · right
-    simp only [inputsDigests_new_eq b hc, Option.map_eq_map, Option.map_some] at hd
+    rename_i hr
+    simp only [inputsDigests_new_eq b (hc (by simpa using hr)), Option.map_eq_map,
+      Option.map_some] at hd
     exact (Option.some.inj hd).symm
   · left
     exact (Option.some.inj hd).symm
 
 /-- `PrecomputedSighashData::new_zip244` computes the specification's digests. -/
 theorem newZip244_eq (tx : TransactionData) (h : WellFormed tx)
-    (hc : ∀ b, tx.transparentBundle = some b → ContextFits b) :
+    (hc : ∀ b, tx.transparentBundle = some b → ContextFitsIfRead b) :
     ∃ d, PrecomputedSighashData.newZip244 tx = some (some ⟨tx, zip244DigestsOf tx, d⟩) ∧
       ∀ b, tx.transparentBundle = some b → InputsDigestsFit b d := by
   have hd := txIdDigests_eq tx h
@@ -1193,7 +1201,10 @@ theorem newZip244_eq (tx : TransactionData) (h : WellFormed tx)
   | some b =>
     obtain ⟨d, hf⟩ : ∃ d, TransparentInputsDigests.forBundle b = some d := by
       unfold TransparentInputsDigests.forBundle
-      split <;> simp [inputsDigests_new_eq b (hc b ht)]
+      split
+      · rename_i hr
+        simp [inputsDigests_new_eq b (hc b ht (by simpa using hr))]
+      · simp
     refine ⟨d, ?_, fun b' hb' => ?_⟩
     · rcases h.version with hv | hv <;>
         simp [PrecomputedSighashData.newZip244, hv, hd, ht, hf, zip244DigestsOf, txidDigestsOf]
@@ -1202,9 +1213,9 @@ theorem newZip244_eq (tx : TransactionData) (h : WellFormed tx)
 
 /-- `signature_hash` gives the specification's signature digest. -/
 theorem signatureHash_eq (tx : TransactionData) (h : WellFormed tx) (b : Transparent.Bundle)
-    (hb : tx.transparentBundle = some b) (hc : ContextFits b) (d : Option TransparentInputsDigests)
-    (hd : InputsDigestsFit b d) (input : SignableInput) (sinput : Spec.SignableInput b.toSpec)
-    (hr : InputRel b input sinput) :
+    (hb : tx.transparentBundle = some b) (hc : ContextFitsIfRead b)
+    (d : Option TransparentInputsDigests) (hd : InputsDigestsFit b d) (input : SignableInput)
+    (sinput : Spec.SignableInput b.toSpec) (hr : InputRel b input sinput) :
     (⟨tx, zip244DigestsOf tx, d⟩ : PrecomputedSighashData).signatureHash input =
       some (Spec.signatureDigest blake2b256 (tx.toSpec.version blake2b256) tx.consensusBranchId
         (Spec.headerDigest blake2b256 tx.toSpec.header)

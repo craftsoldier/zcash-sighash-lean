@@ -308,15 +308,21 @@ def readsVersion (bytes : List Byte) (p : TxVersion → Bool) : Bool :=
 
 /-! ## Zebra -/
 
+/-- A coin as Zebra holds it, if its value is in range. -/
+def zebraOutput (value : ℕ) (script : List Byte) : Option Zebra.Output :=
+  if h : (BitVec.ofNat 64 value).toNat ≤ Zebra.MAX_MONEY then some ⟨_, ⟨script⟩, h⟩ else none
+
 /-- Whether Zebra's digests of the transaction `Transaction::read` reads from the vector, under
-    the network upgrade of its own consensus branch ID and with the vector's coins, are the
-    vector's: its shielded signature digest, and its transparent input's under each hash type.
-    Where the vector has no `SIGHASH_SINGLE` digest, Zebra still computes one. -/
+    the network upgrade of its own consensus branch ID and with the vector's coins, none for a
+    coinbase, as Zebra looks up, are the vector's: its shielded signature digest, and its
+    transparent input's under each hash type. Where the vector has no `SIGHASH_SINGLE` digest,
+    Zebra still computes one. -/
 def checkZebra (v : Zip244Vector) : Bool :=
-  let outs := (v.amounts.zip v.scriptPubKeys).map fun (a, s) =>
-    (⟨BitVec.ofNat 64 a, ⟨hex s⟩⟩ : Transparent.TxOut)
-  match Read.read ⟨[], []⟩ (hex v.tx) with
-  | some (.tx tx, []) =>
+  match (v.amounts.zip v.scriptPubKeys).mapM (fun (a, s) => zebraOutput a (hex s)),
+    Read.read ⟨[], []⟩ (hex v.tx) with
+  | some outs, some (.tx tx, []) =>
+    let coinbase := (tx.transparentBundle.map fun b : Transparent.Bundle => b.isCoinbase).getD false
+    let outs := if coinbase then [] else outs
     match Zebra.PrecomputedTxData.new tx (some tx.consensusBranchId) outs with
     | some (.ok data) =>
       Zebra.sighash data 0x01 none == some (hex v.sighashShielded) &&
@@ -328,9 +334,29 @@ def checkZebra (v : Zip244Vector) : Bool :=
         | some e => digest == some (hex e)
         | none => digest.isSome
     | _ => false
-  | _ => false
+  | _, _ => false
 
 #guard zip244Vectors.map checkZebra = List.replicate 10 true
+
+/-- Whether Zebra's `sighash_v4_raw` of the vector's transaction, rebuilt under the vector's
+    branch ID from a transaction that holds another (0), with the vector's raw hash type, is the
+    vector's digest: its transparent input's coin has the vector's amount and the script code as
+    its lock script, as do the other inputs'. -/
+def checkZebraV4 (v : LegacyVector) : Bool :=
+  match (legacyDecoder (.ofNat _ v.branch.id) []).run' (hex v.tx),
+    zebraOutput v.amount (hex v.scriptCode) with
+  | some stx, some coin =>
+    let tx := { legacyToTransactionData stx (match stx.format with | .v3 => false | .v4 => true)
+      with consensusBranchId := 0 }
+    let outs := List.replicate stx.transparent.vin.length coin
+    match Zebra.PrecomputedTxData.new tx (some (.ofNat _ v.branch.id)) outs with
+    | some (.ok data) =>
+      Zebra.sighashV4Raw data (.ofNat _ v.hashType) (v.transparentInput.map (·, hex v.scriptCode))
+        == some (hex v.sighash)
+    | _ => false
+  | _, _ => false
+
+#guard (zip143Vectors ++ zip243Vectors).map checkZebraV4 = List.replicate 20 true
 
 /-- Whether Zebra gives the NU7 transaction `bytes` the shielded signature digest `digest` under
     NU7 (branch ID `0x77190AD9`), and rejects it under NU6.3 (`0x37A5165B`; `zebra-chain`

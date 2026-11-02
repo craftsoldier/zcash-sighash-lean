@@ -1,8 +1,11 @@
 /-
-What Zebra's signature digests are: its rebuild of a version 5 or 6 transaction that
-`Transaction::read` returned keeps every field but the transparent authorization, which becomes
-the coins its inputs spend (`fromTransactionWithBranchId_eq`), so `sighash` gives the
-specification's signature digest of that transaction, spending those coins
+What Zebra's signature digests are. Its rebuild of a transaction keeps every field but the
+consensus branch ID, which becomes the network upgrade's, and the transparent authorization,
+which becomes the coins its inputs spend (`fromTransactionWithBranchId_eq`), given that the
+transaction has no bundle the rebuild drops, as none `Transaction::read` returns does. For a
+version 5 or 6 transaction, the network upgrade's branch ID must be the transaction's own
+(`precomputedTxData_new_mismatch`), so the rebuild changes only the authorization, and `sighash`
+gives the specification's signature digest of the transaction spending those coins
 (`sighash_shielded_eq`, `sighash_transparent_eq`).
 -/
 module
@@ -18,7 +21,7 @@ namespace ZcashSighash.Verifier.Zebra
 /-- The transaction with consensus branch ID `branchId`, its transparent inputs spending
     `allPreviousOutputs`. -/
 def rebuilt (tx : TransactionData) (branchId : BitVec 32)
-    (allPreviousOutputs : List Transparent.TxOut) : TransactionData :=
+    (allPreviousOutputs : List Output) : TransactionData :=
   { tx with
     consensusBranchId := branchId
     transparentBundle := tx.transparentBundle.map fun b =>
@@ -52,7 +55,7 @@ theorem transparent_mapAuthorization (b : Transparent.Bundle)
     transparent authorization**, when it has no bundle the rebuild drops: no Sprout bundle in
     version 6, no Ironwood bundle before it. -/
 theorem rebuild_eq (tx : TransactionData) (branchId : BitVec 32)
-    (allPreviousOutputs : List Transparent.TxOut)
+    (allPreviousOutputs : List Output)
     (hs : tx.version = .v6 → tx.sproutBundle = none)
     (hi : tx.version ≠ .v6 → tx.ironwoodBundle = none) :
     (transactionDataFromParts tx.version branchId tx.lockTime tx.expiryHeight
@@ -68,7 +71,7 @@ theorem rebuild_eq (tx : TransactionData) (branchId : BitVec 32)
 
 /-- `from_transaction_with_branch_id` computes the digests of the rebuilt transaction. -/
 theorem fromTransactionWithBranchId_eq (tx : TransactionData) (branchId : BitVec 32)
-    (allPreviousOutputs : List Transparent.TxOut)
+    (allPreviousOutputs : List Output)
     (hs : tx.version = .v6 → tx.sproutBundle = none)
     (hi : tx.version ≠ .v6 → tx.ironwoodBundle = none) :
     fromTransactionWithBranchId tx branchId allPreviousOutputs =
@@ -97,7 +100,7 @@ theorem new_eq_newZip244 (tx : TransactionData) (hv : tx.version = .v5 ∨ tx.ve
 /-- The rebuilt transaction is `WellFormed` when the transaction is: the hypothesis reads
     neither the consensus branch ID nor the transparent authorization. -/
 theorem wellFormed_rebuilt {tx : TransactionData} (h : WellFormed tx) (branchId : BitVec 32)
-    (allPreviousOutputs : List Transparent.TxOut) :
+    (allPreviousOutputs : List Output) :
     WellFormed (rebuilt tx branchId allPreviousOutputs) := by
   obtain ⟨hv, htn, hos, hsa, hop, hip, hss, hsn⟩ := h
   refine ⟨hv, ?_, ?_, hsa, hop, hip, ?_, hsn⟩ <;>
@@ -106,21 +109,28 @@ theorem wellFormed_rebuilt {tx : TransactionData} (h : WellFormed tx) (branchId 
     obtain ⟨b', hb', rfl⟩ := hb
     first | exact htn b' hb' | exact hos b' hb' | exact hss b' hb'
 
-/-- The coins fit the rebuilt bundle: one per input, each `scriptPubKey` at most
-    `MAX_COMPACT_SIZE` bytes. -/
+/-- The coins fit a transaction: one per input, unless its transparent bundle is a coinbase or
+    has no inputs, whose digests read no coin; each lock script at most `MAX_COMPACT_SIZE`
+    bytes. -/
+structure CoinsFit (tx : TransactionData) (allPreviousOutputs : List Output) : Prop where
+  length : ∀ b, tx.transparentBundle = some b → (b.isCoinbase || b.vin.isEmpty) = false →
+    allPreviousOutputs.length = b.vin.length
+  scripts : ∀ o ∈ allPreviousOutputs, o.lockScript.code.length ≤ MAX_COMPACT_SIZE
+
+/-- Coins that fit the transaction fit its rebuilt bundle where the digests read them. -/
 theorem contextFits_rebuilt {tx : TransactionData} {branchId : BitVec 32}
-    {allPreviousOutputs : List Transparent.TxOut}
-    (hl : ∀ b, tx.transparentBundle = some b → allPreviousOutputs.length = b.vin.length)
-    (hs : ∀ o ∈ allPreviousOutputs, o.scriptPubkey.code.length ≤ MAX_COMPACT_SIZE) :
-    ∀ b, (rebuilt tx branchId allPreviousOutputs).transparentBundle = some b → ContextFits b := by
-  intro b hb
+    {allPreviousOutputs : List Output} (hf : CoinsFit tx allPreviousOutputs) :
+    ∀ b, (rebuilt tx branchId allPreviousOutputs).transparentBundle = some b →
+      ContextFitsIfRead b := by
+  intro b hb hcb
   simp only [rebuilt, Option.map_eq_some_iff] at hb
   obtain ⟨b', hb', rfl⟩ := hb
-  refine ⟨by simp [transparentAuth, hl b' hb'], by simp [transparentAuth, hl b' hb'], ?_⟩
+  have hl := hf.length b' hb' hcb
+  refine ⟨by simp [transparentAuth, hl], by simp [transparentAuth, hl], ?_⟩
   intro s hs'
   simp only [transparentAuth, List.mem_map] at hs'
   obtain ⟨o, ho, rfl⟩ := hs'
-  exact hs o ho
+  exact hf.scripts o ho
 
 /-- A transaction `Transaction::read` returns has the bundles the rebuild keeps: no Sprout bundle,
     and an Ironwood bundle only in version 6. -/
@@ -148,13 +158,10 @@ theorem read_bundles {ctx : Transparent.AuthorizingContext} {s s' : List Spec.By
 
 /-- **Zebra's `PrecomputedTxData::new`, for a version 5 or 6 transaction `Transaction::read`
     returned, under the network upgrade of its own consensus branch ID, holds the specification's
-    digests of that transaction spending `allPreviousOutputs`**: one coin per input, each
-    `scriptPubKey` at most `MAX_COMPACT_SIZE` bytes. -/
+    digests of that transaction spending `allPreviousOutputs`**, coins that fit it. -/
 theorem precomputedTxData_new_eq {ctx : Transparent.AuthorizingContext} {s s' : List Spec.Byte}
     {tx : TransactionData} (h : Read.read ctx s = some (.tx tx, s'))
-    (allPreviousOutputs : List Transparent.TxOut)
-    (hl : ∀ b, tx.transparentBundle = some b → allPreviousOutputs.length = b.vin.length)
-    (hs : ∀ o ∈ allPreviousOutputs, o.scriptPubkey.code.length ≤ MAX_COMPACT_SIZE) :
+    (allPreviousOutputs : List Output) (hf : CoinsFit tx allPreviousOutputs) :
     ∃ d, PrecomputedTxData.new tx (some tx.consensusBranchId) allPreviousOutputs =
       some (.ok ⟨.zip244 ⟨rebuilt tx tx.consensusBranchId allPreviousOutputs,
         zip244DigestsOf (rebuilt tx tx.consensusBranchId allPreviousOutputs), d⟩,
@@ -167,7 +174,7 @@ theorem precomputedTxData_new_eq {ctx : Transparent.AuthorizingContext} {s s' : 
   generalize hrt : rebuilt tx tx.consensusBranchId allPreviousOutputs = rt
   have hw : WellFormed rt :=
     hrt ▸ wellFormed_rebuilt (Read.read_wellFormed h) tx.consensusBranchId allPreviousOutputs
-  obtain ⟨d, hd, hfit⟩ := newZip244_eq rt hw (hrt ▸ contextFits_rebuilt hl hs)
+  obtain ⟨d, hd, hfit⟩ := newZip244_eq rt hw (hrt ▸ contextFits_rebuilt hf)
   refine ⟨d, ?_, hfit, fun hn => ?_⟩
   · simp only [PrecomputedTxData.new, ne_eq, not_true_eq_false, and_false, ite_false,
       fromTransactionWithBranchId_eq tx _ _ (fun _ => hsp) hiw, hrt,
@@ -182,7 +189,7 @@ theorem precomputedTxData_new_eq {ctx : Transparent.AuthorizingContext} {s s' : 
     rejects a version 5 or 6 transaction.** -/
 theorem precomputedTxData_new_mismatch (tx : TransactionData)
     (hv : tx.version = .v5 ∨ tx.version = .v6) (branchId : BitVec 32)
-    (hb : tx.consensusBranchId ≠ branchId) (allPreviousOutputs : List Transparent.TxOut) :
+    (hb : tx.consensusBranchId ≠ branchId) (allPreviousOutputs : List Output) :
     PrecomputedTxData.new tx (some branchId) allPreviousOutputs =
       some (.error .invalidConsensusBranchId) := by
   have h5 : version tx.version ≥ 5 := by rcases hv with hv | hv <;> simp [hv, version]
@@ -204,20 +211,19 @@ theorem signatureDigest_shielded_congr {t t' : Spec.Transparent} (h : t = t') (v
 
 /-- **Zebra's shielded signature digest (`HashType::ALL`, no input) of a version 5 or 6
     transaction `Transaction::read` returned, under the network upgrade of its own consensus
-    branch ID, is the specification's**, for the transaction spending `allPreviousOutputs`. -/
+    branch ID, is the specification's**, for the transaction spending `allPreviousOutputs`, coins
+    that fit it: none for a coinbase. -/
 theorem sighash_shielded_eq {ctx : Transparent.AuthorizingContext} {s s' : List Spec.Byte}
     {tx : TransactionData} (h : Read.read ctx s = some (.tx tx, s'))
-    (allPreviousOutputs : List Transparent.TxOut)
-    (hl : ∀ b, tx.transparentBundle = some b → allPreviousOutputs.length = b.vin.length)
-    (hs : ∀ o ∈ allPreviousOutputs, o.scriptPubkey.code.length ≤ MAX_COMPACT_SIZE) :
+    (allPreviousOutputs : List Output) (hf : CoinsFit tx allPreviousOutputs) :
     ∃ data, PrecomputedTxData.new tx (some tx.consensusBranchId) allPreviousOutputs =
       some (.ok data) ∧ sighash data 0x01 none =
         some ((rebuilt tx tx.consensusBranchId allPreviousOutputs).toSpec.signatureDigest
           blake2b256 .shielded).toList := by
-  obtain ⟨d, hnew, hfit, hnone⟩ := precomputedTxData_new_eq h allPreviousOutputs hl hs
+  obtain ⟨d, hnew, hfit, hnone⟩ := precomputedTxData_new_eq h allPreviousOutputs hf
   refine ⟨_, hnew, ?_⟩
   have hw := wellFormed_rebuilt (Read.read_wellFormed h) tx.consensusBranchId allPreviousOutputs
-  have hc := contextFits_rebuilt (branchId := tx.consensusBranchId) hl hs
+  have hc := contextFits_rebuilt (branchId := tx.consensusBranchId) hf
   generalize rebuilt tx tx.consensusBranchId allPreviousOutputs = rt at hw hc hfit hnone
   have hsig : ((⟨rt, zip244DigestsOf rt, d⟩ : PrecomputedSighashData).signatureHash .shielded) =
       some (rt.toSpec.signatureDigest blake2b256 .shielded).toList := by
@@ -233,17 +239,16 @@ theorem sighash_shielded_eq {ctx : Transparent.AuthorizingContext} {s s' : List 
   rfl
 
 /-- **Zebra's signature digest of transparent input `i` of a version 5 or 6 transaction
-    `Transaction::read` returned, under the network upgrade of its own consensus branch ID, with
-    any hash type ZIP 244 defines and any script code, is the specification's**, for the
-    transaction spending `allPreviousOutputs`. -/
+    `Transaction::read` returned, not a coinbase, under the network upgrade of its own consensus
+    branch ID, with any hash type ZIP 244 defines and any script code, is the specification's**,
+    for the transaction spending `allPreviousOutputs`, coins that fit it. -/
 theorem sighash_transparent_eq {ctx : Transparent.AuthorizingContext} {s s' : List Spec.Byte}
     {tx : TransactionData} (h : Read.read ctx s = some (.tx tx, s'))
-    (allPreviousOutputs : List Transparent.TxOut)
-    (hl : ∀ b, tx.transparentBundle = some b → allPreviousOutputs.length = b.vin.length)
-    (hs : ∀ o ∈ allPreviousOutputs, o.scriptPubkey.code.length ≤ MAX_COMPACT_SIZE)
+    (allPreviousOutputs : List Output) (hf : CoinsFit tx allPreviousOutputs)
     (b : Transparent.Bundle)
     (hb : (rebuilt tx tx.consensusBranchId allPreviousOutputs).transparentBundle = some b)
-    (ht : Spec.HashType) (i : Fin b.toSpec.vin.length) (scriptCode : List Spec.Byte) :
+    (hcb : b.isCoinbase = false) (ht : Spec.HashType) (i : Fin b.toSpec.vin.length)
+    (scriptCode : List Spec.Byte) :
     ∃ data, PrecomputedTxData.new tx (some tx.consensusBranchId) allPreviousOutputs =
       some (.ok data) ∧ sighash data (ht.toByte.setWidth 32) (some (i.val, scriptCode)) =
         some (Spec.signatureDigest blake2b256
@@ -256,10 +261,16 @@ theorem sighash_transparent_eq {ctx : Transparent.AuthorizingContext} {s s' : Li
             (rebuilt tx tx.consensusBranchId allPreviousOutputs).toSpec.sapling)
           ((rebuilt tx tx.consensusBranchId allPreviousOutputs).toSpec.orchardDigest blake2b256)
           (.transparent ht i)).toList := by
-  obtain ⟨d, hnew, hfit, -⟩ := precomputedTxData_new_eq h allPreviousOutputs hl hs
+  obtain ⟨d, hnew, hfit, -⟩ := precomputedTxData_new_eq h allPreviousOutputs hf
   refine ⟨_, hnew, ?_⟩
   have hw := wellFormed_rebuilt (Read.read_wellFormed h) tx.consensusBranchId allPreviousOutputs
-  have hc := contextFits_rebuilt (branchId := tx.consensusBranchId) hl hs b hb
+  have hvin : ¬ i.val ≥ b.vin.length := by
+    have := i.isLt
+    simp only [Transparent.Bundle.toSpec, List.length_mapIdx] at this
+    omega
+  have hne : b.vin ≠ [] := fun he => by simp [he] at hvin
+  have hc : ContextFits b := contextFits_rebuilt (branchId := tx.consensusBranchId) hf b hb
+    (by simp [hcb, hne])
   -- The bundle's authorization is `allPreviousOutputs`', one coin per input.
   have hauth : b.authorization = transparentAuth allPreviousOutputs := by
     simp only [rebuilt, Option.map_eq_some_iff] at hb
@@ -273,16 +284,12 @@ theorem sighash_transparent_eq {ctx : Transparent.AuthorizingContext} {s s' : Li
     omega
   obtain ⟨o, ho⟩ : ∃ o, allPreviousOutputs[i.val]? = some o :=
     ⟨_, List.getElem?_eq_getElem hi⟩
-  have hvin : ¬ i.val ≥ b.vin.length := by
-    have := i.isLt
-    simp only [Transparent.Bundle.toSpec, List.length_mapIdx] at this
-    omega
-  have hrel : InputRel b (.transparent ⟨⟨ht.toByte⟩, i.val, ⟨scriptCode⟩, o.scriptPubkey,
+  have hrel : InputRel b (.transparent ⟨⟨ht.toByte⟩, i.val, ⟨scriptCode⟩, o.lockScript,
       o.value⟩) (.transparent ht i) :=
     .transparent _ ht i (Spec.HashType.ofByte?_toByte ht) rfl
       (by simp [hauth, transparentAuth, List.getD_eq_getElem?_getD, ho])
       (by simp [hauth, transparentAuth, List.getD_eq_getElem?_getD, ho])
-  have hsig := signatureHash_eq _ hw b hb hc d (hfit b hb) _ _ hrel
+  have hsig := signatureHash_eq _ hw b hb (fun _ => hc) d (hfit b hb) _ _ hrel
   have hbind {α β : Type} (a : α) (f : α → Option β) : (some a >>= f) = f a := rfl
   simp only [sighash, toSighashType?_toByte, sighashInner, Precomputed.tx, hb, ho,
     Transparent.SignableInput.fromParts, hvin, ite_false, Precomputed.signatureHash, hbind, hsig]

@@ -8,8 +8,7 @@ do not: `TransactionData::from_parts`, `from_parts_v6` and `map_authorization`
 
 Zebra does not hash the transaction `Transaction::read` returned: it takes it apart, rebuilds it
 with the consensus branch ID of the network upgrade it validates it under, and replaces its
-transparent authorization with the coins its inputs spend (`all_previous_outputs`). A Zebra
-`transparent::Output` is held as the `TxOut` with the same fields.
+transparent authorization with the coins its inputs spend (`all_previous_outputs`).
 -/
 module
 
@@ -47,7 +46,7 @@ structure Sapling.MapAuth where
 
 /-- `Bundle::map_authorization` (`sapling-crypto`, `src/bundle.rs`, lines 109–145), with the
     closures `TransactionData::map_authorization` passes (`src/transaction/mod.rs`, lines
-    845–853), each calling the `MapAuth` method of its name. -/
+    848–856), each calling the `MapAuth` method of its name. -/
 def Sapling.Bundle.mapAuthorization (self : Sapling.Bundle) (f : Sapling.MapAuth) :
     Sapling.Bundle where
   shieldedSpends := self.shieldedSpends.map fun d =>
@@ -66,11 +65,15 @@ structure Orchard.MapAuth where
 
 /-- `Bundle::map_authorization` (`orchard`, `src/bundle.rs`, lines 608–625), through
     `Action::map` (`src/action.rs`, lines 121–130), with the closures
-    `TransactionData::map_authorization` passes (`src/transaction/mod.rs`, lines 854–867). -/
+    `TransactionData::map_authorization` passes (`src/transaction/mod.rs`, lines 857–870). The
+    action closure ignores the bundle's authorization it is passed. -/
 def Orchard.Bundle.mapAuthorization (self : Orchard.Bundle) (f : Orchard.MapAuth) :
     Orchard.Bundle :=
-  let authorization := f.mapAuthorization (self.proof, self.bindingSignature)
-  { actions := ⟨mapAction self.actions.head, self.actions.tail.map mapAction⟩
+  let authorization := (self.proof, self.bindingSignature)
+  let actions : Orchard.NonEmpty Orchard.Action :=
+    ⟨mapAction self.actions.head, self.actions.tail.map mapAction⟩
+  let authorization := f.mapAuthorization authorization
+  { actions := actions
     flagByte := self.flagByte
     valueBalance := self.valueBalance
     anchor := self.anchor
@@ -162,12 +165,23 @@ def version : TxVersion → ℕ
   | .v5 => 5
   | .v6 => 6
 
+/-- `MAX_MONEY` (`src/amount.rs`, line 610): 21 million coins of 10^8 zatoshis. -/
+def MAX_MONEY : ℕ := 21000000 * 100000000
+
+/-- `transparent::Output` (`src/transparent.rs`, lines 330–337): its value an
+    `Amount<NonNegative>`, which holds an `i64` in `0..=MAX_MONEY` (lines 580–584), and its lock
+    script. -/
+structure Output where
+  value : BitVec 64
+  lockScript : Transparent.Script
+  value_le : value.toNat ≤ MAX_MONEY
+
 /-- `TransparentAuth` (`src/primitives/zcash_primitives.rs`, lines 24–27), as the
     `TransparentAuthorizingContext` it implements (lines 35–58): the values and lock scripts of
-    `all_prev_outputs`. A value is an `Amount<NonNegative>`, at most `MAX_MONEY`, so its
+    `all_prev_outputs`. A value in `0..=MAX_MONEY` is a valid `Zatoshis`, so its
     `try_into().expect(...)` (lines 40–43) cannot panic. -/
-def transparentAuth (allPrevOutputs : List Transparent.TxOut) : Transparent.AuthorizingContext :=
-  ⟨allPrevOutputs.map (·.value), allPrevOutputs.map (·.scriptPubkey)⟩
+def transparentAuth (allPrevOutputs : List Output) : Transparent.AuthorizingContext :=
+  ⟨allPrevOutputs.map (·.value), allPrevOutputs.map (·.lockScript)⟩
 
 /-- `MapTransparent` (lines 64–82): each `scriptSig` kept, the authorization replaced. -/
 def mapTransparent (auth : Transparent.AuthorizingContext) : Transparent.MapAuth :=
@@ -196,12 +210,12 @@ def transactionDataFromParts (version : TxVersion) (branchId lockTime expiryHeig
 /-- `PrecomputedTxData` (`src/primitives/zcash_primitives.rs`, lines 212–220). -/
 structure PrecomputedTxData where
   sighashData : Precomputed
-  allPreviousOutputs : List Transparent.TxOut
+  allPreviousOutputs : List Output
 
 /-- `PrecomputedTxData::from_transaction_with_branch_id` (lines 252–296): the transaction rebuilt
     with `branch_id`, and its transparent authorization replaced by `all_previous_outputs`'. -/
 def fromTransactionWithBranchId (tx : TransactionData) (branchId : BitVec 32)
-    (allPreviousOutputs : List Transparent.TxOut) : Option PrecomputedTxData := do
+    (allPreviousOutputs : List Output) : Option PrecomputedTxData := do
   let data := tx
   let dataWithBranchId := transactionDataFromParts data.version branchId data.lockTime
     data.expiryHeight data.transparentBundle data.sproutBundle data.saplingBundle
@@ -218,7 +232,7 @@ inductive Error where
     is the network upgrade's consensus branch ID, if it has one that `BranchId::try_from` accepts
     (lines 233–236). From version 5 on, it must be the transaction's own. -/
 def PrecomputedTxData.new (tx : TransactionData) (nuBranchId : Option (BitVec 32))
-    (allPreviousOutputs : List Transparent.TxOut) : Option (Except Error PrecomputedTxData) :=
+    (allPreviousOutputs : List Output) : Option (Except Error PrecomputedTxData) :=
   match nuBranchId with
   | none => pure (.error .invalidConsensusBranchId)
   | some branchId =>
@@ -234,7 +248,7 @@ inductive SighashError where
   | bundleInputCountMismatch
 
 /-- `sighash_inner` (lines 467–531): the signable input, then `signature_hash`. A previous output's
-    value converts to `Zatoshis`, as in `transparentAuth`, so `InvalidPreviousOutputAmount` (lines
+    value is a valid `Zatoshis`, as in `transparentAuth`, so `InvalidPreviousOutputAmount` (lines
     503–506) is never returned. -/
 def sighashInner (precomputedTxData : PrecomputedTxData) (sighashType : Transparent.SighashType)
     (inputIndexScriptCode : Option (ℕ × List Byte)) :
@@ -247,7 +261,7 @@ def sighashInner (precomputedTxData : PrecomputedTxData) (sighashType : Transpar
         match precomputedTxData.sighashData.tx.transparentBundle with
         | none => .error .noTransparentBundle
         | some bundle =>
-          let lockScript := output.scriptPubkey
+          let lockScript := output.lockScript
           let unlockScript : Transparent.Script := ⟨scriptCode⟩
           let value := output.value
           match Transparent.SignableInput.fromParts bundle sighashType inputIndex unlockScript

@@ -562,10 +562,10 @@ theorem digestIronwood_eq (ib : Option Orchard.Bundle)
       unwrap_ok]
 
 /-- The hypotheses under which the transcription computes the specification's digests. A
-    transaction read from its encoding satisfies them (`Transaction::read`): it is of version 5
-    or 6; its transparent and Sapling bundles, if any, are not empty; its Sapling spends share
-    one anchor; its Orchard and Ironwood bundles are in their pools; and no script it writes
-    exceeds `MAX_COMPACT_SIZE`, as none it reads does. -/
+    version 5 or 6 transaction read from its encoding satisfies them (`readV5_wellFormed`,
+    `readV6_wellFormed`, `Proofs/Read.lean`): its transparent and Sapling bundles, if any, are
+    not empty; its Sapling spends share one anchor; its Orchard and Ironwood bundles are in
+    their pools; and no script in it exceeds `MAX_COMPACT_SIZE`. -/
 structure WellFormed (tx : TransactionData) : Prop where
   version : tx.version = .v5 ∨ tx.version = .v6
   transparentNonempty : ∀ b, tx.transparentBundle = some b → b.vin ≠ [] ∨ b.vout ≠ []

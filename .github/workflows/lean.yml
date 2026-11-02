@@ -29,7 +29,7 @@ jobs:
       - name: Check the pinned crates
         env:
           PINS: |
-            zcash_primitives 0.31.0 50ad9ffda3d83c35e401b2f914980762f201ab40525cb0aab67b8d91e180e7df src/encoding.rs src/transaction/mod.rs src/transaction/txid.rs src/transaction/sighash.rs src/transaction/sighash_v4.rs src/transaction/sighash_v5.rs src/transaction/sighash_v6.rs src/transaction/components.rs src/transaction/components/sprout.rs src/transaction/components/sapling.rs src/transaction/tests.rs src/transaction/tests/data.rs
+            zcash_primitives 0.31.0 50ad9ffda3d83c35e401b2f914980762f201ab40525cb0aab67b8d91e180e7df src/encoding.rs src/transaction/mod.rs src/transaction/txid.rs src/transaction/sighash.rs src/transaction/sighash_v4.rs src/transaction/sighash_v5.rs src/transaction/sighash_v6.rs src/transaction/components.rs src/transaction/components/sprout.rs src/transaction/components/sapling.rs src/transaction/components/orchard.rs src/transaction/tests.rs src/transaction/tests/data.rs
             zcash_transparent 0.11.0 eb804d0179500e9543502dd6dfa178826617107897e6fe171241e5b767b7a0dd src/address.rs src/bundle.rs src/sighash.rs
             zcash_encoding 0.5.0 b2871fd3c37eaeb635c815a9c97495553bf8237a481b9f8b37eba661764bf937 src/lib.rs
             zcash_protocol 0.11.0 266da226b6be42545b9fc299f1def9f5e525764845b8afa874f167155de943ba src/constants.rs src/value.rs

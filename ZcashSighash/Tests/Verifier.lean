@@ -8,6 +8,7 @@ version 6 transactions' digests, and `v4_signature_hash` on ZIP 143's and ZIP 24
 (`zip_0143`, `zip_0243`, lines 1084–1148).
 -/
 import ZcashSighash.Verifier.Zakura
+import ZcashSighash.Verifier.Read
 import ZcashSighash.Tests.Spec
 
 namespace ZcashSighash.Tests
@@ -235,5 +236,23 @@ def checkZakuraLegacy (v : LegacyVector) : Bool :=
     | none => false
 
 #guard (zip143Vectors ++ zip243Vectors).map checkZakuraLegacy = List.replicate 20 true
+
+/-! ## `Transaction::read` -/
+
+/-- Whether `read_v5` reads the whole vector (after its version header and version group ID)
+    into a transaction with the vector's identifier and auth digest. -/
+def checkRead (v : Zip244Vector) : Bool :=
+  let ctx : Transparent.AuthorizingContext :=
+    ⟨v.amounts.map (BitVec.ofNat 64), v.scriptPubKeys.map fun s => ⟨hex s⟩⟩
+  match Read.readV5 ctx ((hex v.tx).drop 8) with
+  | some (tx, []) =>
+    match tx.txIdDigests with
+    | some digests =>
+      toTxid tx.version tx.consensusBranchId digests == some (some (hex v.txid)) &&
+      tx.authCommitment == some (hex v.authDigest)
+    | none => false
+  | _ => false
+
+#guard zip244Vectors.map checkRead = List.replicate 10 true
 
 end ZcashSighash.Tests

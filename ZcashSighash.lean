@@ -21,6 +21,8 @@
 * `Proofs/BlockCommitment.lean`: it is the specification's.
 * `Verifier/Parse.lean`: Zakura's parser for transparent inputs and outputs.
 * `Proofs/Parse.lean`: what it parses meets the native theorems' hypotheses.
+* `Verifier/Read.lean`: librustzcash's reader for version 5 and 6 transactions.
+* `Proofs/Read.lean`: every transaction it reads meets the digest theorems' hypotheses.
 -/
 module
 
@@ -36,6 +38,7 @@ public import ZcashSighash.Proofs.Native
 public import ZcashSighash.Proofs.NativeV4
 public import ZcashSighash.Proofs.BlockCommitment
 public import ZcashSighash.Proofs.Parse
+public import ZcashSighash.Proofs.Read
 public import ZcashSighash.Verifier.Blake2b
 public import ZcashSighash.Verifier.Encoding
 public import ZcashSighash.Verifier.Transparent
@@ -49,3 +52,4 @@ public import ZcashSighash.Verifier.Native
 public import ZcashSighash.Verifier.NativeV4
 public import ZcashSighash.Verifier.BlockCommitment
 public import ZcashSighash.Verifier.Parse
+public import ZcashSighash.Verifier.Read

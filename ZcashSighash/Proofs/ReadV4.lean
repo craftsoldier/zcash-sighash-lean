@@ -11,8 +11,8 @@ public import ZcashSighash.Proofs.Write
 
 namespace ZcashSighash.Verifier.Read
 
-open Spec (Byte Bytes)
-open Native (Parser readBytes readLe fail readCount Parser.bind_eq_some pure_apply)
+open Spec (Byte)
+open Native (Parser.bind_eq_some pure_apply)
 
 /-- **The identifier of a transaction of version 1 to 4 that `Transaction::read` returns is the
     SHA-256d of the bytes it read.** -/
@@ -22,10 +22,9 @@ theorem read_v4_txid {ctx : Transparent.AuthorizingContext} {bid : BitVec 32} {s
       ∀ r, read ctx bid (w ++ r) = some (.v4 tx txid, r) := by
   obtain ⟨w, rfl, hw⟩ := consumes_read ctx bid _ _ _ h
   refine ⟨w, rfl, ?_, hw⟩
-  have cv : Consumes readTxVersion := by unfold readTxVersion; consumes_tac
   obtain ⟨⟨v, hdr⟩, s₁, h₁, hk⟩ := Parser.bind_eq_some.mp h
   obtain ⟨hv, rfl⟩ := hashReader_eq_some h₁
-  obtain ⟨w₁, hw₁, -⟩ := cv _ _ _ hv
+  obtain ⟨w₁, hw₁, -⟩ := consumes_readTxVersion _ _ _ hv
   dsimp only at hk
   cases v
   case v5 =>

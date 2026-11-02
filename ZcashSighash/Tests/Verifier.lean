@@ -6,11 +6,12 @@ The transcribed `zcash_primitives` on ZIP 244's test vectors, as its own test do
 `SIGHASH_SINGLE` digest, the crate still computes one, as its test skips it. Likewise the crates'
 own transactions' digests, and `v4_signature_hash` on ZIP 143's and ZIP 243's vectors
 (`zip_0143`, `zip_0243`, lines 1084–1148). Then `Transaction::read`: on ZIP 244's vectors and the
-crates' own, truncated, and on version headers, and on the crate's version 4 transaction and ZIP
-143's and ZIP 243's, its identifier and digests; `Transaction::write` on what it read; and the
-reader on values at the edges of their range. Last, Zebra's `sighash` on what the reader reads
-from ZIP 244's vectors and from the NU7 transactions of `zebra-chain`'s own test, and its
-`sighash_v4_raw` on ZIP 143's and ZIP 243's vectors.
+crates' own, truncated, and on version headers, and on the crate's version 4 transaction, ZIP
+143's and ZIP 243's, and versions 1 and 2, its identifier and digests, and the value balance
+`read_v4` drops; `Transaction::write` on what it read; and the reader on values at the edges of
+their range. Last, Zebra's `sighash` on what the reader reads from ZIP 244's vectors and from the
+NU7 transactions of `zebra-chain`'s own test, and its `sighash_v4_raw` on ZIP 143's and ZIP 243's
+vectors.
 -/
 import ZcashSighash.Verifier.Zakura
 import ZcashSighash.Verifier.Read
@@ -397,6 +398,37 @@ def checkReadV4 (v : LegacyVector) : Bool :=
   | _ => false
 
 #guard (zip143Vectors ++ zip243Vectors).map checkReadV4 = List.replicate 20 true
+
+/-- Whether `Transaction::read` reads all of `bytes` as a transaction of version 1 to 4, with the
+    SHA-256d of `bytes` as its identifier, and `write` writes `bytes` back. -/
+def checkV4RoundTrip (bytes : List Byte) : Bool :=
+  match Read.read ⟨[], []⟩ 0 bytes with
+  | some (.v4 tx txid, []) =>
+    txid == (Sha256.sha256d (bytes.map (·.toNat))).map (BitVec.ofNat 8) &&
+    match tx.write ([] : VecU8) with
+    | .ok w => w == bytes
+    | .error _ => false
+  | _ => false
+
+/- A version 1 transaction, which has no JoinSplits, and a version 2 one with one JoinSplit and
+   its BCTV14 proof, zero bytes but for the header and the counts. -/
+#guard checkV4RoundTrip (hex "01000000" ++ hex "0000" ++ hex "00000000")
+#guard checkV4RoundTrip (hex "02000000" ++ hex "0000" ++ hex "00000000" ++ hex "01" ++
+  List.replicate 1802 0 ++ List.replicate 96 0)
+
+/-- A version 4 transaction with no Sapling Spend or Output and a value balance of 1. -/
+def droppedValueBalance : List Byte :=
+  hex "0400008085202f89" ++ hex "0000" ++ hex "0000000000000000" ++ toLeBytes 8 (1 : BitVec 64) ++
+    hex "000000"
+
+/- With no Sapling Spend or Output, `read_v4` reads the value balance and drops it, and `write`
+   writes zero in its place: the bytes written back are not the ones read. -/
+#guard match Read.read ⟨[], []⟩ 0 droppedValueBalance with
+  | some (.v4 tx _, []) =>
+    match tx.write ([] : VecU8) with
+    | .ok w => w != droppedValueBalance && w.length == droppedValueBalance.length
+    | .error _ => false
+  | _ => false
 
 /-! ## `Transaction::write` -/
 

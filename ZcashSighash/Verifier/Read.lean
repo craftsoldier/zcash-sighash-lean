@@ -339,7 +339,7 @@ def readV4 (ctx : Transparent.AuthorizingContext) (version : TxVersion)
 
 /-! ## `Transaction::read` -/
 
-/-- `HashReader` (`zcash_transparent` 0.11.0, `src/util/sha256d.rs`, lines 4–40): `p`, and the
+/-- `HashReader` (`zcash_transparent` 0.11.0, `src/util/sha256d.rs`, lines 4–39): `p`, and the
     bytes it read, which the `HashReader` hashes as they are read. -/
 def hashReader {α : Type} (p : Parser α) : Parser (α × List Byte) := fun s =>
   (p s).map fun (a, s') => ((a, s.take (s.length - s'.length)), s')

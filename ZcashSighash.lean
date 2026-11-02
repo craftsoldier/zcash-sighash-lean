@@ -22,16 +22,17 @@
 * `Verifier/PushNum.lean`: `zcash_script`'s `push_num`, which encodes a coinbase input's height.
 * `Verifier/Parse.lean`: Zakura's parser for transparent inputs and outputs.
 * `Proofs/Parse.lean`: what it parses meets the native theorems' hypotheses.
-* `Verifier/Read.lean`: librustzcash's reader for version 5 and 6 transactions.
-* `Proofs/Read.lean`: every transaction it reads meets the digest theorems' hypotheses, and its
-  values are in range.
+* `Verifier/Read.lean`: librustzcash's reader, for every version.
+* `Proofs/Read.lean`: every version 5 and 6 transaction it reads meets the digest theorems'
+  hypotheses, and its values are in range.
 * `Verifier/Write.lean`: librustzcash's writer, for every version.
-* `Proofs/Write.lean`: it writes back the bytes the reader read, and the reader reads them back.
+* `Proofs/Write.lean`: it writes back the bytes the reader read of a version 5 and 6 transaction,
+  and the reader reads them back.
 * `Verifier/Sha256.lean`: SHA-256 (FIPS 180-4), which a version 1 to 4 identifier is made of.
 * `Proofs/ReadV4.lean`: that identifier is the SHA-256d of the bytes the reader read.
 * `Verifier/Zebra.lean`: Zebra's signature digests, of the transaction rebuilt.
-* `Proofs/Zebra.lean`: for a transaction the reader returns, under its own branch ID, and coins
-  that fit it, they are the specification's.
+* `Proofs/Zebra.lean`: for a version 5 or 6 transaction the reader returns, under its own branch
+  ID, and coins that fit it, they are the specification's.
 -/
 module
 

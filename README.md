@@ -10,24 +10,24 @@ them gives the specification's digests with BLAKE2b-256. Each theorem states its
   can express, given no empty bundles, Sapling spends that share one anchor, Orchard and Ironwood
   bundles in their own pools, scripts no longer than `MAX_COMPACT_SIZE`, and a coin for each
   input, `signature_hash` gives the specification's digests in versions 3 to 6, and `to_txid` and
-  `auth_commitment` in versions 5 and 6. A version 1 to 4 transaction's identifier is the
-  SHA-256d of its encoding: the reader computes it as the SHA-256d of the bytes it read, with
-  SHA-256 as FIPS 180-4 defines it, which the `sha2` crate is taken to compute. That `write`
-  gives those bytes back is tested, on the crate's own version 4 transaction and ZIP 143's and
-  ZIP 243's vectors, not proven; it fails in one case, a nonzero Sapling value balance with no
-  Spend or Output, which the reader drops and Zebra rejects. ZIP 244 puts a placeholder where a
-  version 3 or 4 auth commitment would be. Every version 5 and 6 transaction its reader
-  (`Transaction::read`) returns meets all but the last, which the coins looked up for it must
-  meet, and has the version its first 8 bytes encode, so its digests follow that version's rules;
-  computing its identifier, which the reader does at once, never panics; and its values are in
-  range, each transparent output at most `MAX_MONEY` and each value balance within `MAX_MONEY` of
-  zero. Its writer (`Transaction::write`) writes each back as exactly the bytes it was read from,
-  and reading those gives the same transaction; in version 6 with an Orchard or Ironwood bundle,
-  under NU6.3 or NU7, as Zebra requires of every version 6 transaction it parses (under NU5 to
-  NU6.2, writing one with an Orchard bundle fails). Zebra 7.0.0 parses every transaction with
-  this reader, adding rejections of its own (`zebra-chain` 15.0.0), so this holds of every
-  version 5 and 6 transaction Zebra accepts. Outside those hypotheses, theorems state what it
-  computes instead, or that it panics.
+  `auth_commitment` in versions 5 and 6. For a version 1 to 4 transaction, the reader computes
+  the identifier as the SHA-256d of the bytes it read, with SHA-256 as FIPS 180-4 defines it,
+  which the `sha2` crate is taken to compute. That `write` gives those bytes back, so that this
+  is the SHA-256d of the transaction's encoding, is tested, not proven: on the crate's own version
+  4 transaction, ZIP 143's and ZIP 243's vectors, and versions 1 and 2. It does not with a nonzero
+  Sapling value balance and no Spend or Output, which the reader drops and Zebra rejects. ZIP 244
+  puts a placeholder where an auth commitment before version 5 would be. Every version 5 and 6
+  transaction its reader (`Transaction::read`) returns meets all but the last, which the coins
+  looked up for it must meet, and has the version its first 8 bytes encode, so its digests
+  follow that version's rules; computing its identifier, which the reader does at once, never
+  panics; and its values are in range, each transparent output at most `MAX_MONEY` and each value
+  balance within `MAX_MONEY` of zero. Its writer (`Transaction::write`) writes each back as
+  exactly the bytes it was read from, and reading those gives the same transaction; in version 6
+  with an Orchard or Ironwood bundle, under NU6.3 or NU7, as Zebra requires of every version 6
+  transaction it parses (under NU5 to NU6.2, writing one with an Orchard bundle fails). Zebra
+  7.0.0 parses every transaction with this reader, adding rejections of its own (`zebra-chain`
+  15.0.0), so this holds of every version 5 and 6 transaction Zebra accepts. Outside those
+  hypotheses, theorems state what it computes instead, or that it panics.
 - `zebra-chain` 15.0.0 (Zebra 7.0.0's): its `sighash` hashes a rebuild of the transaction, with
   the consensus branch ID of the network upgrade it validates under and the coins its inputs
   spend as their authorization. For a version 5 or 6 transaction the reader returns, a network

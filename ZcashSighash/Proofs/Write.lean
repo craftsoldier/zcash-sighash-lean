@@ -968,23 +968,21 @@ theorem consumes_readV4 (ctx : Transparent.AuthorizingContext) (v : TxVersion)
   unfold readV4
   consumes_tac
 
+/-- `TxVersion::read` consumes its input. -/
+theorem consumes_readTxVersion : Consumes readTxVersion := by
+  unfold readTxVersion; consumes_tac
+
 /-- `Transaction::read` consumes its input. -/
 theorem consumes_read (ctx : Transparent.AuthorizingContext) (bid : BitVec 32) :
     Consumes (read ctx bid) := by
-  have hv : Consumes readTxVersion := by unfold readTxVersion; consumes_tac
   have := consumes_readV5 ctx .v5
   have := consumes_readV6 ctx .v6
   unfold read
-  refine consumes_bind (consumes_hashReader hv) fun ⟨v, _⟩ => ?_
-  cases v
-  · exact consumes_bind (consumes_hashReader (consumes_readV4 ctx _ bid)) fun _ =>
-      consumes_pure _
-  · exact consumes_bind (consumes_hashReader (consumes_readV4 ctx _ bid)) fun _ =>
-      consumes_pure _
-  · exact consumes_bind (consumes_hashReader (consumes_readV4 ctx _ bid)) fun _ =>
-      consumes_pure _
-  · consumes_tac
-  · consumes_tac
+  refine consumes_bind (consumes_hashReader consumes_readTxVersion) fun ⟨v, _⟩ => ?_
+  cases v <;> first
+    | exact consumes_bind (consumes_hashReader (consumes_readV4 ctx _ bid)) fun _ =>
+        consumes_pure _
+    | consumes_tac
 
 /-! ## Transactions -/
 

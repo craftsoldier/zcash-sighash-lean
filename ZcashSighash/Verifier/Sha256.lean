@@ -9,6 +9,7 @@ what was read or written.
 module
 
 public import Mathlib.Data.Nat.Notation
+public import Batteries.Data.List.Basic
 
 @[expose] public section
 
@@ -80,13 +81,11 @@ def compress (h : Array UInt32) (block : List ℕ) : Array UInt32 :=
 
 /-- SHA-256 of a message: its digest, as 32 bytes. -/
 def sha256 (m : List ℕ) : List ℕ :=
-  let p := pad m
-  let h := (List.range (p.length / 64)).foldl (fun h i =>
-    compress h ((p.drop (64 * i)).take 64)) h0
+  let h := ((pad m).toChunks 64).foldl compress h0
   (List.range 32).map fun i => ((h[i / 4]! >>> (8 * (3 - (i % 4)).toUInt32)).toNat % 256)
 
 /-- SHA-256d: SHA-256 of the SHA-256 of a message, as `HashReader::into_hash` and
-    `HashWriter::into_hash` (lines 25–27 and 57–59) compute it. -/
+    `HashWriter::into_hash` (lines 24–26 and 56–58) compute it. -/
 def sha256d (m : List ℕ) : List ℕ := sha256 (sha256 m)
 
 end ZcashSighash.Verifier.Sha256

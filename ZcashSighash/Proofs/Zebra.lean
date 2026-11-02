@@ -2,12 +2,11 @@
 What Zebra's signature digests are. Its rebuild of a transaction keeps every field but the
 consensus branch ID, which becomes the network upgrade's, and the transparent authorization,
 which becomes the coins its inputs spend (`fromTransactionWithBranchId_eq`). That needs no Sprout
-bundle in version 6 and no Ironwood bundle before it, which holds of every transaction
-`Transaction::read` returns (`read_bundles`). For a
-version 5 or 6 transaction, the network upgrade's branch ID must be the transaction's own
-(`precomputedTxData_new_mismatch`), so the rebuild changes only the authorization, and `sighash`
-gives the specification's signature digest of the transaction spending those coins
-(`sighash_shielded_eq`, `sighash_transparent_eq`).
+bundle in version 6 and no Ironwood bundle before it, which holds of every version 5 or 6
+transaction `Transaction::read` returns (`read_bundles`). For a version 5 or 6 transaction, the
+network upgrade's branch ID must be the transaction's own (`precomputedTxData_new_mismatch`), so
+the rebuild changes only the authorization, and `sighash` gives the specification's signature
+digest of the transaction spending those coins (`sighash_shielded_eq`, `sighash_transparent_eq`).
 -/
 module
 
@@ -139,8 +138,8 @@ theorem contextFits_rebuilt {tx : TransactionData} {branchId : BitVec 32}
   obtain ⟨o, ho, rfl⟩ := hs'
   exact hf.scripts o ho
 
-/-- A transaction `Transaction::read` returns has the bundles the rebuild keeps: no Sprout bundle,
-    and an Ironwood bundle only in version 6. -/
+/-- A version 5 or 6 transaction `Transaction::read` returns has the bundles the rebuild keeps:
+    no Sprout bundle, and an Ironwood bundle only in version 6. -/
 theorem read_bundles {ctx : Transparent.AuthorizingContext}
     {bid : BitVec 32} {s s' : List Spec.Byte}
     {tx : TransactionData} (h : Read.read ctx bid s = some (.tx tx, s')) :

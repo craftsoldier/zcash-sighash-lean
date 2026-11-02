@@ -354,8 +354,9 @@ inductive ReadOutcome where
 
 /-- `Transaction::read` (lines 973–986), with `consensus_branch_id`, which only `read_v4` uses.
     Its `HashReader` hashes every byte it reads: the version's, then `read_v4`'s, whose
-    `into_hash` (lines 1037–1039) gives the SHA-256d of them all. Versions 5 and 6 read on from the
-    base reader. -/
+    `into_hash` (lines 1037–1039) gives the SHA-256d of them all. Its `copy_from_slice` into a
+    32-byte identifier cannot panic: a SHA-256 digest is 32 bytes. Versions 5 and 6 read on from
+    the base reader. -/
 def read (ctx : Transparent.AuthorizingContext) (consensusBranchId : BitVec 32) :
     Parser ReadOutcome := do
   let (version, header) ← hashReader readTxVersion

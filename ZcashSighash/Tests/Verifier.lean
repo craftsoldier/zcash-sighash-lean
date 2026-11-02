@@ -239,20 +239,67 @@ def checkZakuraLegacy (v : LegacyVector) : Bool :=
 
 /-! ## `Transaction::read` -/
 
-/-- Whether `read_v5` reads the whole vector (after its version header and version group ID)
-    into a transaction with the vector's identifier and auth digest. -/
-def checkRead (v : Zip244Vector) : Bool :=
-  let ctx : Transparent.AuthorizingContext :=
-    ⟨v.amounts.map (BitVec.ofNat 64), v.scriptPubKeys.map fun s => ⟨hex s⟩⟩
-  match Read.readV5 ctx ((hex v.tx).drop 8) with
-  | some (tx, []) =>
+/-- Whether `Transaction::read` reads `bytes` into a transaction with identifier `txid` and auth
+    digest `authDigest`, leaving `rest`. -/
+def checkRead (ctx : Transparent.AuthorizingContext) (bytes rest : List Byte) (txid : String)
+    (authDigest : Option String) : Bool :=
+  match Read.read ctx (bytes ++ rest) with
+  | some (.tx tx, rest') =>
+    rest' == rest &&
     match tx.txIdDigests with
     | some digests =>
-      toTxid tx.version tx.consensusBranchId digests == some (some (hex v.txid)) &&
-      tx.authCommitment == some (hex v.authDigest)
+      toTxid tx.version tx.consensusBranchId digests == some (some (hex txid)) &&
+      authDigest.all fun d => tx.authCommitment == some (hex d)
     | none => false
   | _ => false
 
-#guard zip244Vectors.map checkRead = List.replicate 10 true
+#guard zip244Vectors.map (fun v => checkRead
+  ⟨v.amounts.map (BitVec.ofNat 64), v.scriptPubKeys.map fun s => ⟨hex s⟩⟩ (hex v.tx) []
+  v.txid (some v.authDigest)) = List.replicate 10 true
+
+/-- The first version 6 transaction's encoding (`zcash_primitives` 0.31.0,
+    `src/transaction/tests.rs`, line 46), and the trailer its test reads it from (line 52). -/
+def v6Encoded : List Byte := hex "0600008098b684d8d90a19770000000001000000000000000000"
+def v6Trailer : List Byte := "next-record".toUTF8.toList.map (BitVec.ofNat 8 ·.toNat)
+
+/- As its test checks (lines 89–98): the reader leaves the trailer, and every truncation is an
+   error. -/
+#guard checkRead ⟨[], []⟩ v6Encoded v6Trailer
+  "78296c68a370c2e1f058d997c81c7b011c4562c52fc5ca2994ad59cd179fbe9e" none
+#guard (List.range v6Encoded.length).all fun n => (Read.read ⟨[], []⟩ (v6Encoded.take n)).isNone
+
+/- The second version 6 transaction's encoding (`zakura-primitives` 4.0.0,
+   `src/transaction/tests.rs`, line 60), read by `zcash_primitives`' reader. -/
+#guard checkRead ⟨[], []⟩
+  (hex ("0600008098b684d85b16a5370100000002000000010000000000000000000000" ++
+    "0000000000000000000000000000000000000000000000000000ffffffff0150c3000000000000015100000000"))
+  []
+  "e11e16887d9aea199fc4eaa3b371c6868ded3e9a2b1c3393a7b0c15f79e73179"
+  (some "454423cf6de9acb289a60852144679176cea3bd5e5ec51526d483ced2533e73a")
+
+/-- Whether `Transaction::read` hands `bytes` to `read_v4`, with a version that `p` accepts. -/
+def readsV4 (bytes : List Byte) (p : TxVersion → Bool) : Bool :=
+  match Read.read ⟨[], []⟩ bytes with
+  | some (.readV4 v, _) => p v
+  | _ => false
+
+/-- Whether `TxVersion::read` reads all of `bytes` as a version that `p` accepts. -/
+def readsVersion (bytes : List Byte) (p : TxVersion → Bool) : Bool :=
+  match Read.readTxVersion bytes with
+  | some (v, []) => p v
+  | _ => false
+
+/- A header without the overwintered bit is a pre-Overwinter version, whatever its number, and
+   goes to `read_v4`, as versions 3 and 4 do; with it, the version group ID must be the version's
+   own, and version 7 (`nutachyon` only) is unknown; a version of 0 is an error. -/
+#guard readsV4 (hex "05000000") fun | .sprout v => v == 5 | _ => false
+#guard readsV4 (hex "030000807082c403") fun | .v3 => true | _ => false
+#guard readsV4 (hex "0400008085202f89") fun | .v4 => true | _ => false
+#guard readsVersion (hex "050000800a27a726") fun | .v5 => true | _ => false
+#guard (Read.readTxVersion (hex "0500008098b684d8")).isNone
+#guard readsVersion (hex "0600008098b684d8") fun | .v6 => true | _ => false
+#guard (Read.readTxVersion (hex "0600008068636174")).isNone
+#guard (Read.readTxVersion (hex "0700008068636174")).isNone
+#guard (Read.readTxVersion (hex "00000000")).isNone
 
 end ZcashSighash.Tests

@@ -11,9 +11,10 @@ them gives the specification's digests with BLAKE2b-256. Each theorem states its
   encoding can express: no empty bundles, Sapling spends that share one anchor, Orchard and
   Ironwood bundles in their own pools, scripts no longer than `MAX_COMPACT_SIZE`, and a coin for
   each input. Every version 5 and 6 transaction its reader (`Transaction::read`) returns meets
-  all but the last, which the coins looked up for it must meet; so computing its identifier,
-  which the reader does at once, never panics. Outside those hypotheses, theorems state what it
-  computes instead, or that it panics.
+  all but the last, which the coins looked up for it must meet, and has the version its first 8
+  bytes encode, so its digests follow that version's rules; computing its identifier, which the
+  reader does at once, never panics. Outside those hypotheses, theorems state what it computes
+  instead, or that it panics.
 - `zakura-primitives` 4.0.0 (Zakura's fork of it): the same digests under the same hypotheses,
   for scripts of any length. Zakura's node computes version 4 to 6 signature digests, and version
   5 and 6 identifiers and auth digests, with its own code in `zakura-chain`.

@@ -2,16 +2,17 @@
 `zcash_primitives` 0.31.0's `Transaction::read` for version 5 and 6 transactions
 (`src/transaction/mod.rs`, `src/transaction/components/{sapling,orchard}.rs`), and the readers it
 calls in `zcash_transparent` 0.11.0 and `zcash_encoding` 0.5.0, under the default features (no
-`zip-233`). A read error is `none`. Zebra and Zakura parse blocks with their own chain crates;
-this is the librustzcash reader, not theirs.
+`zip-233`). A read error is `none`. An earlier version goes to `read_v4`, which is not
+transcribed: `read` stops there (`.readV4`), where the crate reads on and may still fail. Zebra
+and Zakura parse blocks with their own chain crates; this is the librustzcash reader, not theirs.
 
 Checks that only reject more inputs are left out: that a byte string is a valid curve point or
 field element (`read_value_commitment`, `read_rk`, `read_base`, `read_anchor`, ...), a valid
 consensus branch (`BranchId::try_from`), Orchard flags valid for the bundle version
 (`read_flags`), a value balance in range (`read_amount`), an Orchard bundle version for the
-branch, and a canonical Orchard proof length (`try_from_parts`). So what this reader returns on
-success is what `zcash_primitives` returns, and `Proofs/Read.lean` is about what a successful
-read returns.
+branch, and a canonical Orchard proof length (`try_from_parts`). So every version 5 or 6
+transaction `zcash_primitives` returns, this reader returns too (`.tx`), and `Proofs/Read.lean`
+is about what a successful read returns.
 -/
 module
 
@@ -200,24 +201,62 @@ def readHeaderFragment : Parser (BitVec 32 × BitVec 32 × BitVec 32) := do
   pure (BitVec.ofNat 32 consensusBranchId, BitVec.ofNat 32 lockTime, BitVec.ofNat 32 expiryHeight)
 
 /-- `read_v5` (lines 1089–1116), which `Transaction::read` (lines 973–986) calls for a version 5
-    header. -/
-def readV5 (ctx : Transparent.AuthorizingContext) : Parser TransactionData := do
+    header. `from_data_v5`'s `assert_eq!(data.version, TxVersion::V5)` (line 937) is left out:
+    `Transaction::read` passes only `V5`. -/
+def readV5 (ctx : Transparent.AuthorizingContext) (version : TxVersion) :
+    Parser TransactionData := do
   let (consensusBranchId, lockTime, expiryHeight) ← readHeaderFragment
   let transparentBundle ← readTransparent ctx
   let saplingBundle ← readSaplingV5
   let orchardBundle ← readOrchardBundle .orchard
-  pure ⟨.v5, consensusBranchId, lockTime, expiryHeight, transparentBundle, none, saplingBundle,
-    orchardBundle, none⟩
+  pure ⟨version, consensusBranchId, lockTime, expiryHeight, transparentBundle, none,
+    saplingBundle, orchardBundle, none⟩
 
 /-- `read_v6` (lines 1118–1149), which `Transaction::read` calls for a version 6 header. Its
-    `read_v6_header_fragment` (lines 1172–1183) is `read_header_fragment` without `zip-233`. -/
-def readV6 (ctx : Transparent.AuthorizingContext) : Parser TransactionData := do
+    `read_v6_header_fragment` (lines 1172–1183) is `read_header_fragment` without `zip-233`.
+    `from_data_v6`'s `assert_eq!(data.version, TxVersion::V6)` (line 951) is left out:
+    `Transaction::read` passes only `V6`. -/
+def readV6 (ctx : Transparent.AuthorizingContext) (version : TxVersion) :
+    Parser TransactionData := do
   let (consensusBranchId, lockTime, expiryHeight) ← readHeaderFragment
   let transparentBundle ← readTransparent ctx
   let saplingBundle ← readSaplingV5
   let orchardBundle ← readOrchardBundle .orchard
   let ironwoodBundle ← readOrchardBundle .ironwood
-  pure ⟨.v6, consensusBranchId, lockTime, expiryHeight, transparentBundle, none, saplingBundle,
-    orchardBundle, ironwoodBundle⟩
+  pure ⟨version, consensusBranchId, lockTime, expiryHeight, transparentBundle, none,
+    saplingBundle, orchardBundle, ironwoodBundle⟩
+
+/-- `TxVersion::read` (lines 89–115), without `V7`, with `V3_TX_VERSION` to `V6_TX_VERSION` and
+    `V3_VERSION_GROUP_ID` to `V6_VERSION_GROUP_ID` (`zcash_protocol` 0.11.0, `src/constants.rs`,
+    lines 16–42): an error for an unknown format. -/
+def readTxVersion : Parser TxVersion := do
+  let header ← readLe 4
+  let overwintered := header >>> 31 = 1
+  let version := header &&& 0x7FFFFFFF
+  if overwintered then
+    match version, ← readLe 4 with
+    | 3, 0x03C48270 => pure .v3
+    | 4, 0x892F2085 => pure .v4
+    | 5, 0x26A7270A => pure .v5
+    | 6, 0xD884B698 => pure .v6
+    | _, _ => fail
+  else if 1 ≤ version then pure (.sprout (BitVec.ofNat 32 version))
+  else fail
+
+/-- What `Transaction::read` does once it has read the version: read a version 5 or 6
+    transaction, or hand an earlier one to `read_v4` (lines 989–1064), which is not transcribed. -/
+inductive ReadOutcome where
+  | tx (data : TransactionData)
+  | readV4 (version : TxVersion)
+
+/-- `Transaction::read` (lines 973–986), up to `read_v4`. The `HashReader` it reads through
+    computes only `read_v4`'s identifier, and its `consensus_branch_id` goes only to `read_v4`, so
+    both are left out. -/
+def read (ctx : Transparent.AuthorizingContext) : Parser ReadOutcome := do
+  let version ← readTxVersion
+  match version with
+  | .sprout _ | .v3 | .v4 => pure (.readV4 version)
+  | .v5 => ReadOutcome.tx <$> readV5 ctx version
+  | .v6 => ReadOutcome.tx <$> readV6 ctx version
 
 end ZcashSighash.Verifier.Read

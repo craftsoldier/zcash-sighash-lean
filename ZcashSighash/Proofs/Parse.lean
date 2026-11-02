@@ -45,6 +45,27 @@ theorem readBytes_length {n : ℕ} {s s' bytes : List Byte}
   simp
   omega
 
+/-- Four bytes read as a little-endian integer are its `to_le_bytes`. -/
+theorem readLe_four {s s' : List Byte} {n : ℕ} (h : readLe 4 s = some (n, s')) :
+    n < 2 ^ 32 ∧ s = toLeBytes 4 (BitVec.ofNat 32 n) ++ s' := by
+  obtain ⟨bytes, s₁, hb, h⟩ := Parser.bind_eq_some.mp h
+  simp only [pure_apply, Option.some.injEq, Prod.mk.injEq] at h
+  obtain ⟨rfl, rfl⟩ := h
+  simp only [readBytes] at hb
+  split at hb
+  · next hlen =>
+    simp only [Option.some.injEq, Prod.mk.injEq] at hb
+    obtain ⟨rfl, rfl⟩ := hb
+    match s, hlen with
+    | a :: b :: c :: d :: rest, _ =>
+      have ha := a.isLt; have hb' := b.isLt; have hc := c.isLt; have hd := d.isLt
+      simp only [List.take, List.drop, List.foldr, toLeBytes, List.range, List.range.loop,
+        List.map, List.cons_append, List.nil_append, List.cons.injEq]
+      refine ⟨by omega, ?_⟩
+      refine ⟨?_, ?_, ?_, ?_, trivial⟩ <;> apply BitVec.eq_of_toNat_eq <;>
+        simp [BitVec.toNat_ofNat] <;> omega
+  · simp at hb
+
 /-- A `CompactSizeMessage` is at most `MAX_PROTOCOL_MESSAGE_LEN`. -/
 theorem readCompactSizeMessage_le {n : ℕ} {s s' : List Byte}
     (h : readCompactSizeMessage s = some (n, s')) : n ≤ MAX_PROTOCOL_MESSAGE_LEN := by

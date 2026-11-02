@@ -62,7 +62,7 @@ The specification and both `zcash_primitives` transcriptions give the digests of
 crates' own tests; `zakura-chain`'s, those of the version 4 to 6 ones; `zebra-chain`'s, the
 signature digests of all three ZIPs' and of the NU7 ones its own test uses. Versions 1 and 2 sign a
 SHA-256d digest that none of these crates computes: `zcash_primitives` and `zakura-primitives`
-panic on them, and `zakura-chain` hands them to `zakura-primitives`. The transcribed code has no
+panic on them, and `zakura-chain` and `zebra-chain` hand them to those. The transcribed code has no
 `unsafe` blocks, which CI checks. The theorems are about what the code computes, not what it
 costs: that a block's signature digests take time linear in its size, which ZIP 143 and ZIP 244
 set out to ensure, is not proven.

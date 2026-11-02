@@ -90,7 +90,6 @@ theorem new_eq_newZip244 (tx : TransactionData) (hv : tx.version = .v5 ∨ tx.ve
   unfold PrecomputedSighashData.new PrecomputedSighashData.newZip244
   rcases hv with hv | hv <;> rw [hv] <;>
   · cases tx.txIdDigests <;> simp only [bind, Option.bind]
-    rename_i d
     cases tx.transparentBundle with
     | none => rfl
     | some b =>
@@ -138,8 +137,7 @@ theorem read_bundles {ctx : Transparent.AuthorizingContext} {s s' : List Spec.By
     {tx : TransactionData} (h : Read.read ctx s = some (.tx tx, s')) :
     tx.sproutBundle = none ∧ (tx.version ≠ .v6 → tx.ironwoodBundle = none) := by
   obtain ⟨s₁, ⟨-, ht⟩ | ⟨-, ht⟩⟩ := Read.read_tx h
-  · have hv := Read.readV5_version ht
-    obtain ⟨_, s₁, -, h₁⟩ := Native.Parser.bind_eq_some.mp ht
+  · obtain ⟨_, s₁, -, h₁⟩ := Native.Parser.bind_eq_some.mp ht
     obtain ⟨_, s₂, -, h₂⟩ := Native.Parser.bind_eq_some.mp h₁
     obtain ⟨_, s₃, -, h₃⟩ := Native.Parser.bind_eq_some.mp h₂
     obtain ⟨_, s₄, -, h₄⟩ := Native.Parser.bind_eq_some.mp h₃
@@ -212,7 +210,8 @@ theorem signatureDigest_shielded_congr {t t' : Spec.Transparent} (h : t = t') (v
 /-- **Zebra's shielded signature digest (no input, which Zebra computes with `HashType::ALL`) of
     a version 5 or 6 transaction `Transaction::read` returned, under the network upgrade of its
     own consensus branch ID, is the specification's**, for the transaction spending
-    `allPreviousOutputs`, coins that fit it: none for a coinbase. A shielded input is hashed with
+    `allPreviousOutputs`, coins that fit it, which need none for a coinbase, as Zebra looks up
+    none for it. A shielded input is hashed with
     `SIGHASH_ALL` whatever the hash type. -/
 theorem sighash_shielded_eq {ctx : Transparent.AuthorizingContext} {s s' : List Spec.Byte}
     {tx : TransactionData} (h : Read.read ctx s = some (.tx tx, s'))

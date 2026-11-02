@@ -13,6 +13,7 @@ transparent authorization with the coins its inputs spend (`all_previous_outputs
 module
 
 public import ZcashSighash.Verifier.SighashV4
+public import ZcashSighash.Verifier.Parse
 
 @[expose] public section
 
@@ -165,16 +166,14 @@ def version : TxVersion → ℕ
   | .v5 => 5
   | .v6 => 6
 
-/-- `MAX_MONEY` (`src/amount.rs`, line 610): 21 million coins of 10^8 zatoshis. -/
-def MAX_MONEY : ℕ := 21000000 * 100000000
-
 /-- `transparent::Output` (`src/transparent.rs`, lines 330–337): its value an
-    `Amount<NonNegative>`, which holds an `i64` in `0..=MAX_MONEY` (lines 580–584), and its lock
+    `Amount<NonNegative>`, which holds an `i64` in `0..=MAX_MONEY` (`src/amount.rs`, lines
+    580–584; `MAX_MONEY`, line 610, the same value as `Native.MAX_MONEY`), and its lock
     script. -/
 structure Output where
   value : BitVec 64
   lockScript : Transparent.Script
-  value_le : value.toNat ≤ MAX_MONEY
+  value_le : value.toNat ≤ Native.MAX_MONEY
 
 /-- `TransparentAuth` (`src/primitives/zcash_primitives.rs`, lines 24–27), as the
     `TransparentAuthorizingContext` it implements (lines 35–58): the values and lock scripts of

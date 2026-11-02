@@ -311,7 +311,7 @@ def readsVersion (bytes : List Byte) (p : TxVersion → Bool) : Bool :=
 
 /-- A coin as Zebra holds it, if its value is in range. -/
 def zebraOutput (value : ℕ) (script : List Byte) : Option Zebra.Output :=
-  if h : value ≤ Zebra.MAX_MONEY then
+  if h : value ≤ Native.MAX_MONEY then
     some ⟨BitVec.ofNat 64 value, ⟨script⟩, (BitVec.toNat_ofNat _ _ ▸ Nat.mod_le _ _).trans h⟩
   else none
 
@@ -344,7 +344,8 @@ def checkZebra (v : Zip244Vector) : Bool :=
 /-- Whether Zebra's `sighash_v4_raw` of the vector's transaction, rebuilt under the vector's
     branch ID from a transaction that holds another (0), with the vector's raw hash type, is the
     vector's digest: its transparent input's coin has the vector's amount and the script code as
-    its lock script, as do the other inputs'. -/
+    its lock script, as do the other inputs'. For a shielded vector, so is `sighash` with
+    `HashType::ALL`, as Zebra computes it. -/
 def checkZebraV4 (v : LegacyVector) : Bool :=
   match (legacyDecoder (.ofNat _ v.branch.id) []).run' (hex v.tx),
     zebraOutput v.amount (hex v.scriptCode) with
@@ -355,7 +356,8 @@ def checkZebraV4 (v : LegacyVector) : Bool :=
     match Zebra.PrecomputedTxData.new tx (some (.ofNat _ v.branch.id)) outs with
     | some (.ok data) =>
       Zebra.sighashV4Raw data (.ofNat _ v.hashType) (v.transparentInput.map (·, hex v.scriptCode))
-        == some (hex v.sighash)
+        == some (hex v.sighash) &&
+      (v.transparentInput.isSome || Zebra.sighash data 0x01 none == some (hex v.sighash))
     | _ => false
   | _, _ => false
 

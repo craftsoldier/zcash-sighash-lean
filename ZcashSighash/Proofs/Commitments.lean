@@ -3,9 +3,10 @@ What a transaction's identifier and auth digest commit to. The identifier commit
 effecting data and ignores the authorizing data (ZIP 244: "TxId Digest"; in version 6 the anchors
 are authorizing data, ZIP 229). A cache keyed by identifier alone therefore cannot tell two
 transactions with different signatures or proofs apart, as Zebra's CVE-2026-34377 (GHSA-3vmh)
-showed; keying it by identifier and auth digest can. Conversely, unless computing it finds a
+showed; keying it by identifier and auth digest can. Conversely, unless computing them finds a
 hash collision, the identifier determines everything but the authorizing data
-(`stripAuth_of_txid`).
+(`stripAuth_of_txid`), and with the auth digest, the whole transaction
+(`canonical_of_txid_authDigest`).
 -/
 module
 
@@ -263,6 +264,10 @@ theorem saplingInputs_v6 (H : Hash) (iw iw' : OrchardBundle) (s : Sapling) :
     saplingInputs H (.v6 iw) s = saplingInputs H (.v6 iw') s := by
   simp [saplingInputs, saplingSpendsInputs, saplingSpendsDigest, saplingSpendsNoncompactDigest,
     Format.IsV6]
+
+/-- The Sapling auth inputs see only whether the format is version 6. -/
+theorem saplingAuthInputs_v6 (iw iw' : OrchardBundle) (s : Sapling) :
+    saplingAuthInputs (.v6 iw) s = saplingAuthInputs (.v6 iw') s := rfl
 
 /-- The header digest determines the header. -/
 theorem header_of_digest (H : Hash) {h₁ h₂ : Header}
@@ -555,6 +560,192 @@ theorem stripAuth_of_txid (H : Hash) {tx₁ tx₂ : Transaction}
         (hH.both (fun a ha => by simp [txidInputs, ha]) (fun a ha => by simp [txidInputs, ha]))
         ho₁ ho₂ ht, hs', ho', hiw']
 
+/-! ## The identifier and auth digest commit to the whole transaction -/
+
+/-- A Sapling component with the fields its encoding omits set to zero: the value balance and
+    binding signature with no Spend or Output, the anchor with no Spend. -/
+def Sapling.canonical (s : Sapling) : Sapling :=
+  ⟨s.spends, s.outputs, if s.spends = [] ∧ s.outputs = [] then 0 else s.valueBalance,
+    if s.spends = [] then zeros 32 else s.anchor,
+    if s.spends = [] ∧ s.outputs = [] then zeros 64 else s.bindingSig⟩
+
+/-- An Orchard-shaped component with no Action as the empty one: the encoding has no other
+    field. -/
+def OrchardBundle.canonical (b : OrchardBundle) : OrchardBundle :=
+  if b.actions = [] then ⟨[], 0, 0, zeros 32, [], zeros 64⟩ else b
+
+/-- A transaction as its encoding holds it: without the coins its inputs spend, and with the
+    fields of empty components it does not encode set to zero. -/
+def Transaction.canonical (tx : Transaction) : Transaction where
+  format := match tx.format with
+    | .v5 => .v5
+    | .v6 iw => .v6 iw.canonical
+  header := tx.header
+  transparent := tx.transparent.stripAuth
+  scriptSigs := tx.scriptSigs
+  sapling := tx.sapling.canonical
+  orchard := tx.orchard.canonical
+
+/-- A run of `k`-byte chunks of `l` has `k` bytes per element. -/
+theorem length_flatMap_const {α : Type} (l : List α) (f : α → List Byte) (k : ℕ)
+    (hl : ∀ a, (f a).length = k) : (l.flatMap f).length = l.length * k := by
+  induction l with
+  | nil => simp
+  | cons a l ih => simp [hl, ih, Nat.succ_mul, Nat.add_comm]
+
+/-- With an Orchard-shaped component's identifier data, §A.3's digest determines the rest. -/
+theorem actions_of_auth (H : Hash) (p : Personalizations) (v6 : Bool) {b₁ b₂ : OrchardBundle}
+    (hH : CollisionFreeOn H (actionsAuthInputs p v6 b₁ ++ actionsAuthInputs p v6 b₂))
+    (hs : b₁.stripAuth v6 = b₂.stripAuth v6)
+    (ha : actionsAuthDigest H p v6 b₁ = actionsAuthDigest H p v6 b₂) :
+    b₁.canonical = b₂.canonical := by
+  by_cases h₁ : b₁.actions = [] <;> by_cases h₂ : b₂.actions = []
+  · simp [OrchardBundle.canonical, h₁, h₂]
+  · simp [OrchardBundle.stripAuth, h₁, h₂] at hs
+  · simp [OrchardBundle.stripAuth, h₁, h₂] at hs
+  · simp only [OrchardBundle.stripAuth, h₁, h₂, ite_false, OrchardBundle.mk.injEq] at hs
+    obtain ⟨hacts, hfl, hvb, han, -, -⟩ := hs
+    have hn : b₁.actions.length = b₂.actions.length := by
+      simpa using congrArg List.length hacts
+    simp only [actionsAuthDigest, h₁, h₂, ite_false] at ha
+    have h := hH.eq (by simp [actionsAuthInputs]) (by simp [actionsAuthInputs]) ha
+    simp only [List.append_assoc] at h
+    have hl := fun (l : List Action) =>
+      length_flatMap_const l (·.spendAuthSig.toList) 64 (fun _ => by simp)
+    obtain ⟨hpr, h⟩ := List.append_inj' h (by cases v6 <;> simp [hl, hn])
+    obtain ⟨hsig, h⟩ := List.append_inj h (by simp [hl, hn])
+    obtain ⟨hbs, han'⟩ := List.append_inj h (by simp)
+    have hbs' := List.Vector.toList_injective hbs
+    have hsig' : b₁.actions.map (·.spendAuthSig) = b₂.actions.map (·.spendAuthSig) :=
+      vectors_injective 64 (by decide) (by simpa [List.flatMap_map] using hsig)
+    have hacts' := map_eq_of_map id (map_pair hacts hsig') fun x y hxy => by
+      simp only [Prod.mk.injEq, Action.mk.injEq] at hxy
+      obtain ⟨⟨h1, h2, h3, h4, h5, h6, h7, -⟩, h8⟩ := hxy
+      cases x; cases y; simp_all
+    simp only [List.map_id] at hacts'
+    have hanc : b₁.anchor = b₂.anchor := by
+      cases v6
+      · simpa using han
+      · exact List.Vector.toList_injective (by simpa using han')
+    simp only [OrchardBundle.canonical, h₁, h₂, ite_false]
+    cases b₁; cases b₂
+    simp_all
+
+/-- With a Sapling component's identifier data, §A.2's digest determines the rest. -/
+theorem sapling_of_auth (H : Hash) (f : Format) {s₁ s₂ : Sapling}
+    (hH : CollisionFreeOn H (saplingAuthInputs f s₁ ++ saplingAuthInputs f s₂))
+    (hs : s₁.stripAuth f.IsV6 = s₂.stripAuth f.IsV6)
+    (ha : saplingAuthDigest H f s₁ = saplingAuthDigest H f s₂) :
+    s₁.canonical = s₂.canonical := by
+  simp only [Sapling.stripAuth, Sapling.mk.injEq] at hs
+  obtain ⟨hsp, hout, hvb, han, -⟩ := hs
+  have hn : s₁.spends.length = s₂.spends.length := by simpa using congrArg List.length hsp
+  have hm : s₁.outputs.length = s₂.outputs.length := by simpa using congrArg List.length hout
+  have hse : s₁.spends = [] ↔ s₂.spends = [] := by
+    rw [← List.length_eq_zero_iff, hn, List.length_eq_zero_iff]
+  have hoe : s₁.outputs = [] ↔ s₂.outputs = [] := by
+    rw [← List.length_eq_zero_iff, hm, List.length_eq_zero_iff]
+  by_cases he : s₁.spends = [] ∧ s₁.outputs = []
+  · have he₂ : s₂.spends = [] ∧ s₂.outputs = [] := ⟨hse.mp he.1, hoe.mp he.2⟩
+    simp [Sapling.canonical, he, he₂]
+  · have he₂ : ¬(s₂.spends = [] ∧ s₂.outputs = []) := by rwa [← hse, ← hoe]
+    simp only [saplingAuthDigest, he, he₂, ite_false] at ha
+    have h := hH.eq (by simp [saplingAuthInputs]) (by simp [saplingAuthInputs]) ha
+    simp only [List.append_assoc] at h
+    have hl := fun (l : List SaplingSpend) =>
+      length_flatMap_const l (·.zkproof.toList) 192 (fun _ => by simp)
+    have hl' := fun (l : List SaplingSpend) =>
+      length_flatMap_const l (·.spendAuthSig.toList) 64 (fun _ => by simp)
+    have hlo := fun (l : List SaplingOutput) =>
+      length_flatMap_const l (·.zkproof.toList) 192 (fun _ => by simp)
+    obtain ⟨hzk, h⟩ := List.append_inj h (by simp [hl, hn])
+    obtain ⟨hsig, h⟩ := List.append_inj h (by simp [hl', hn])
+    obtain ⟨hozk, h⟩ := List.append_inj h (by simp [hlo, hm])
+    obtain ⟨hbs, han'⟩ := List.append_inj h (by simp)
+    have hzk' : s₁.spends.map (·.zkproof) = s₂.spends.map (·.zkproof) :=
+      vectors_injective 192 (by decide) (by simpa [List.flatMap_map] using hzk)
+    have hsig' : s₁.spends.map (·.spendAuthSig) = s₂.spends.map (·.spendAuthSig) :=
+      vectors_injective 64 (by decide) (by simpa [List.flatMap_map] using hsig)
+    have hozk' : s₁.outputs.map (·.zkproof) = s₂.outputs.map (·.zkproof) :=
+      vectors_injective 192 (by decide) (by simpa [List.flatMap_map] using hozk)
+    have hspends := map_eq_of_map id (map_pair (map_pair hsp hzk') hsig') fun x y hxy => by
+      simp only [Prod.mk.injEq, SaplingSpend.mk.injEq] at hxy
+      obtain ⟨⟨⟨h1, h2, h3, -, -⟩, h4⟩, h5⟩ := hxy
+      cases x; cases y; simp_all
+    have houts := map_eq_of_map id (map_pair hout hozk') fun x y hxy => by
+      simp only [Prod.mk.injEq, SaplingOutput.mk.injEq] at hxy
+      obtain ⟨⟨h1, h2, h3, h4, h5, -⟩, h6⟩ := hxy
+      cases x; cases y; simp_all
+    simp only [List.map_id] at hspends houts
+    have hbs' := List.Vector.toList_injective hbs
+    have hanc : s₁.spends ≠ [] → s₁.anchor = s₂.anchor := fun hne => by
+      have hne₂ : s₂.spends ≠ [] := fun h => hne (hse.mpr h)
+      cases hv : f.IsV6
+      · simpa [hv, hne, hne₂] using han
+      · exact List.Vector.toList_injective (by simpa [hv, hne, hne₂] using han')
+    rw [ite_eq_right he, ite_eq_right he₂] at hvb
+    simp only [Sapling.canonical, Sapling.mk.injEq]
+    refine ⟨hspends, houts, by rw [ite_eq_right he, ite_eq_right he₂, hvb], ?_,
+      by rw [ite_eq_right he, ite_eq_right he₂, hbs']⟩
+    by_cases h0 : s₁.spends = []
+    · rw [ite_eq_left h0, ite_eq_left (hse.mp h0)]
+    · rw [ite_eq_right h0, ite_eq_right fun h => h0 (hse.mpr h), hanc h0]
+
+/-- **The identifier and auth digest commit to the whole transaction** (ZIP 244: "The pair
+    (Transaction Identifier, Auth Commitment) constitutes a commitment to all the data of a
+    serialized transaction"): two transactions with the same identifier and auth digest are the
+    same as their encodings hold them, unless computing those digests hashes two different inputs
+    to one digest, when their scripts fit a `compactSize`. A cache keyed by both confuses two
+    transactions only by finding a hash collision. -/
+theorem canonical_of_txid_authDigest (H : Hash) {tx₁ tx₂ : Transaction}
+    (hH : CollisionFreeOn H ((txidInputs H tx₁ ++ authInputs H tx₁) ++
+      (txidInputs H tx₂ ++ authInputs H tx₂)))
+    (ho₁ : ∀ o ∈ tx₁.transparent.vout, o.scriptPubKey.length < 2 ^ 64)
+    (ho₂ : ∀ o ∈ tx₂.transparent.vout, o.scriptPubKey.length < 2 ^ 64)
+    (hs₁ : ∀ s ∈ tx₁.scriptSigs, s.length < 2 ^ 64) (hs₂ : ∀ s ∈ tx₂.scriptSigs, s.length < 2 ^ 64)
+    (htx : tx₁.txid H = tx₂.txid H) (hauth : tx₁.authDigest H = tx₂.authDigest H) :
+    tx₁.canonical = tx₂.canonical := by
+  have hst := stripAuth_of_txid H
+    (hH.both (fun a ha => List.mem_append_left _ ha) (fun a ha => List.mem_append_left _ ha))
+    ho₁ ho₂ htx
+  have hA := hH.both (fun a ha => List.mem_append_right _ ha)
+    (fun a ha => List.mem_append_right _ ha)
+  unfold Transaction.authDigest node at hauth
+  have hd := vectors_injective 32 (by decide) (hA _ _ _ _
+    (List.mem_append_left _ List.mem_cons_self) (List.mem_append_right _ List.mem_cons_self)
+    hauth).2
+  rcases tx₁ with ⟨_ | iw₁, hd₁, t₁, ss₁, s₁, o₁⟩ <;>
+    rcases tx₂ with ⟨_ | iw₂, hd₂, t₂, ss₂, s₂, o₂⟩ <;>
+    simp only [Transaction.stripAuth, Transaction.mk.injEq, reduceCtorEq, false_and,
+      Format.v6.injEq] at hst <;>
+    simp only [Format.IsV6, ite_true, Bool.false_eq_true, ite_false, List.cons_append,
+      List.nil_append, List.append_nil, List.cons.injEq, and_true] at hd hs₁ hs₂ ⊢
+  · obtain ⟨-, hhd, ht, -, hs, ho⟩ := hst
+    obtain ⟨hsc, hsa, hor⟩ := hd
+    have hss := script_flatMap_injective _ _ hs₁ hs₂
+      (hA.eq (by simp [authInputs]) (by simp [authInputs]) hsc)
+    have hs' := sapling_of_auth H .v5
+      (hA.both (fun a ha => by simp [authInputs, ha]) (fun a ha => by simp [authInputs, ha])) hs hsa
+    have ho' := actions_of_auth H _ false
+      (hA.both (fun a ha => by simp [authInputs, ha]) (fun a ha => by simp [authInputs, ha])) ho hor
+    simp only [Transaction.canonical]
+    rw [hhd, ht, hss, hs', ho']
+  · obtain ⟨hiw, hhd, ht, -, hs, ho⟩ := hst
+    obtain ⟨hsc, hsa, hor, hiwa⟩ := hd
+    have hss := script_flatMap_injective _ _ hs₁ hs₂
+      (hA.eq (by simp [authInputs]) (by simp [authInputs]) hsc)
+    have hs' := sapling_of_auth H (.v6 iw₁)
+      (hA.both (fun a ha => by simp [authInputs, ha])
+        (fun a ha => by rw [saplingAuthInputs_v6 iw₁ iw₂] at ha; simp [authInputs, ha])) hs
+      (by simpa [saplingAuthDigest, Format.IsV6] using hsa)
+    have ho' := actions_of_auth H _ true
+      (hA.both (fun a ha => by simp [authInputs, ha]) (fun a ha => by simp [authInputs, ha])) ho hor
+    have hiw' := actions_of_auth H _ true
+      (hA.both (fun a ha => by simp [authInputs, ha]) (fun a ha => by simp [authInputs, ha]))
+      hiw hiwa
+    simp only [Transaction.canonical]
+    rw [hhd, ht, hss, hs', ho', hiw']
+
 -- The build fails if a theorem rests on anything beyond Lean's three axioms.
 /--
 info: 'ZcashSighash.Spec.txid_stripAuth' depends on axioms: [propext, Classical.choice, Quot.sound]
@@ -568,5 +759,12 @@ info: 'ZcashSighash.Spec.stripAuth_of_txid' depends on axioms:
 -/
 #guard_msgs (whitespace := lax) in
 #print axioms stripAuth_of_txid
+
+/--
+info: 'ZcashSighash.Spec.canonical_of_txid_authDigest' depends on axioms:
+[propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs (whitespace := lax) in
+#print axioms canonical_of_txid_authDigest
 
 end ZcashSighash.Spec

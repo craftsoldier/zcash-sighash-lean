@@ -4,7 +4,7 @@
 * `Spec.lean`: the transaction digests and signature check as ZIPs 143, 243, 244 and 229 define
   them.
 * `Proofs/Spec.lean`: what the specification is meant to do, checked against what it says.
-* `Proofs/Commitments.lean`: what the transaction identifier commits to, and what it ignores.
+* `Proofs/Commitments.lean`: what the identifier and auth digest commit to, and what they ignore.
 * `Verifier/Blake2b.lean`: BLAKE2b (RFC 7693), with the `blake2b_simd` interface.
 * `Verifier/`: librustzcash's digests, transcribed statement by statement.
 * `Proofs/Verifier.lean`: the transcription computes the specification's digests.

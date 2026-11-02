@@ -4,8 +4,8 @@ What `zcash_primitives`' reader guarantees: every version 5 and 6 transaction
 (`Proofs/Verifier.lean`), and begins with the encoding of its version (`read_wellFormed`,
 `read_write`). So its identifier is the specification's, and computing it, which
 `Transaction::read` does at once (`from_data_v5`, `from_data_v6`), never panics: the shape of
-GHSA-qp6f (`read_txid_eq`). Every value in it is in range: each transparent output's at most
-`MAX_MONEY`, and each value balance in `-MAX_MONEY..=MAX_MONEY` (`read_valuesInRange`).
+GHSA-qp6f (`read_txid_eq`). Every value it encodes is in range: each transparent output's at
+most `MAX_MONEY`, and each value balance in `-MAX_MONEY..=MAX_MONEY` (`read_valuesInRange`).
 -/
 module
 
@@ -329,8 +329,9 @@ theorem read_txid_eq {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
 def BalanceInRange (v : BitVec 64) : Prop :=
   -(Native.MAX_MONEY : ℤ) ≤ v.toInt ∧ v.toInt ≤ Native.MAX_MONEY
 
-/-- Every value in a transaction is in range: each transparent output's at most `MAX_MONEY`,
-    and each value balance in `-MAX_MONEY..=MAX_MONEY`. -/
+/-- Every value a transaction encodes is in range: each transparent output's at most
+    `MAX_MONEY`, and each value balance in `-MAX_MONEY..=MAX_MONEY`. The coins its inputs spend,
+    which it does not encode, are not among them. -/
 structure ValuesInRange (tx : TransactionData) : Prop where
   outputs : ∀ b, tx.transparentBundle = some b → ∀ o ∈ b.vout, o.value.toNat ≤ Native.MAX_MONEY
   sapling : ∀ b, tx.saplingBundle = some b → BalanceInRange b.valueBalance
@@ -431,7 +432,8 @@ theorem readTransparent_range {ctx : Transparent.AuthorizingContext} {s s' : Lis
     subst hb
     exact readVector_forall (fun _ _ _ h => readTxOut_range h) ho
 
-/-- **Every value in a version 5 or 6 transaction `zcash_primitives` reads is in range.** -/
+/-- **Every value a version 5 or 6 transaction `zcash_primitives` reads encodes is in
+    range.** -/
 theorem read_valuesInRange {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
     {tx : TransactionData} (h : read ctx s = some (.tx tx, s')) : ValuesInRange tx := by
   obtain ⟨s₁, ⟨-, ht⟩ | ⟨-, ht⟩⟩ := read_tx h

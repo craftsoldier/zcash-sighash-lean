@@ -16,9 +16,8 @@ Checks that only reject more inputs are left out: that a byte string is a valid 
 field element (`read_value_commitment`, `read_rk`, `read_base`, `read_anchor`, ...), a valid
 consensus branch (`BranchId::try_from`), Orchard flags valid for the bundle version
 (`read_flags`), an Orchard bundle version for the branch, and a canonical Orchard proof length
-(`try_from_parts`). So every version 5 or 6
-transaction `zcash_primitives` returns, this reader returns too (`.tx`), and `Proofs/Read.lean`
-is about what a successful read returns.
+(`try_from_parts`). So every version 5 or 6 transaction `zcash_primitives` returns, this reader
+returns too (`.tx`), and `Proofs/Read.lean` is about what a successful read returns.
 -/
 module
 
@@ -109,7 +108,8 @@ def readTransparent (ctx : Transparent.AuthorizingContext) :
 
 /-- `read_amount` (lines 1082–1087): a `ZatBalance`, its `i64`, through `from_i64_le_bytes` and
     `from_i64` (`zcash_protocol` 0.11.0, `src/value.rs`, lines 95–98 and 58–66): an error outside
-    `-MAX_BALANCE..=MAX_BALANCE`, `MAX_BALANCE` being `MAX_MONEY` (line 17). -/
+    `-MAX_BALANCE..=MAX_BALANCE`, `MAX_BALANCE` being `MAX_MONEY` (lines 16–17), the same value
+    as `Native.MAX_MONEY`. -/
 def readAmount : Parser (BitVec 64) := do
   let bytes ← readLe 8
   let amount := BitVec.ofNat 64 bytes

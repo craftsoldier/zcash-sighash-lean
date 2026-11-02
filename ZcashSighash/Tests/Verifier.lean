@@ -314,12 +314,23 @@ def withValueBalance (vb : BitVec 64) : List Byte :=
   hex "050000800a27a726d90a19770000000001000000" ++ hex "00000001" ++ List.replicate 756 0 ++
     toLeBytes 8 vb ++ List.replicate 256 0 ++ hex "00"
 
-/- `read_amount` accepts a value balance in `-MAX_MONEY..=MAX_MONEY`, and rejects one outside it
-   (`zcash_protocol` 0.11.0, `src/value.rs`, lines 58–66). -/
-#guard (Read.read ⟨[], []⟩ (withValueBalance (.ofInt 64 2100000000000000))).isSome
-#guard (Read.read ⟨[], []⟩ (withValueBalance (.ofInt 64 (-2100000000000000)))).isSome
+/-- Whether `Transaction::read` reads all of `withValueBalance vb`, into a transaction whose
+    Sapling value balance is `vb`. -/
+def readsValueBalance (vb : BitVec 64) : Bool :=
+  match Read.read ⟨[], []⟩ (withValueBalance vb) with
+  | some (.tx tx, []) => (tx.saplingBundle.map (·.valueBalance)) == some vb
+  | _ => false
+
+/- `read_amount` accepts a value balance in `-MAX_MONEY..=MAX_MONEY`, -1 included, and rejects one
+   outside it, `i64::MIN` included (`zcash_protocol` 0.11.0, `src/value.rs`, lines 58–66). These
+   test the transcription, which leaves out the point checks the Rust would fail these zero
+   bytes on. -/
+#guard readsValueBalance (.ofInt 64 2100000000000000)
+#guard readsValueBalance (.ofInt 64 (-2100000000000000))
+#guard readsValueBalance (.ofInt 64 (-1))
 #guard (Read.read ⟨[], []⟩ (withValueBalance (.ofInt 64 2100000000000001))).isNone
 #guard (Read.read ⟨[], []⟩ (withValueBalance (.ofInt 64 (-2100000000000001)))).isNone
+#guard (Read.read ⟨[], []⟩ (withValueBalance (.ofNat 64 (2 ^ 63)))).isNone
 
 /-! ## Zebra -/
 

@@ -15,6 +15,8 @@
 * `Proofs/Script.lean`: the callback gives each signature check the specification's digest.
 * `Verifier/Native.lean`: Zakura's own digests, which its node validates blocks with.
 * `Proofs/Native.lean`: they compute the specification's digests, for versions 5 and 6.
+* `Verifier/NativeV4.lean`: Zakura's own version 4 signature digest.
+* `Proofs/NativeV4.lean`: it computes the specification's digest.
 -/
 module
 
@@ -27,6 +29,7 @@ public import ZcashSighash.Proofs.VerifierV4
 public import ZcashSighash.Proofs.Zakura
 public import ZcashSighash.Proofs.Script
 public import ZcashSighash.Proofs.Native
+public import ZcashSighash.Proofs.NativeV4
 public import ZcashSighash.Verifier.Blake2b
 public import ZcashSighash.Verifier.Encoding
 public import ZcashSighash.Verifier.Transparent
@@ -37,3 +40,4 @@ public import ZcashSighash.Verifier.SighashV4
 public import ZcashSighash.Verifier.Zakura
 public import ZcashSighash.Verifier.Script
 public import ZcashSighash.Verifier.Native
+public import ZcashSighash.Verifier.NativeV4

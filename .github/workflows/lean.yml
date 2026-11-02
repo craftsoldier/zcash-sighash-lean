@@ -38,12 +38,12 @@ jobs:
             nonempty 0.11.0 549e471b99ccaf2f89101bec68f4d244457d5a95a9c3d0672e9564124397741d src/lib.rs
             blake2b_simd 1.0.4 b79834656f71332577234b50bfc009996f7449e0c056884e6a02492ded0ca2f3 src/lib.rs
             zakura-primitives 4.0.0 c380aeac887e935cbe05aebe0f417cb1cd16ecc802ee67b05b1cbaf2294d8467 src/transaction/mod.rs src/transaction/txid.rs src/transaction/sighash.rs src/transaction/sighash_v4.rs src/transaction/sighash_v5.rs src/transaction/sighash_v6.rs src/transaction/tests.rs
-            zakura-transparent 4.0.0 56d9a18d51d990c681baf2b6eb427173ba7899f58d9c0f8966901d2257bda9e4 src/address.rs src/bundle.rs
+            zakura-transparent 4.0.0 56d9a18d51d990c681baf2b6eb427173ba7899f58d9c0f8966901d2257bda9e4 src/address.rs src/bundle.rs src/sighash.rs
             zakura-protocol 4.0.0 b28415ef2e0210e62bc4f9277a1d2878aecdcf13d71dc92aac5582a108cd1ff5 src/encoding.rs
             zakura-orchard 4.0.0 ded68d0841754e5cd9c6a976e3c1bf64275fbfa4cfca0e5b4ee5ee44d5bb7e74 src/bundle/commitments.rs src/action.rs src/note.rs
             zakura-sapling-crypto 4.0.0 c723f61c7b67b057185edf592111ffab15909b7f2649b6b5690ee6ac47d70d5d src/bundle.rs
             zakura-script 5.0.0 c318b1de5214842182ed9658944969404ff3a60e254b24c1c82f78e2d9fc7723 src/lib.rs
-            zakura-chain 10.0.0 7e6b3e3ee6112d3dc761ae5c36effa32487802bc019f419674a590c96f7b7322 src/transaction/sighash.rs src/transaction/zip244.rs src/transaction.rs src/transparent.rs src/transparent/serialize.rs src/sapling/shielded_data.rs src/orchard/shielded_data.rs src/serialization/zcash_serialize.rs src/serialization/compact_size.rs src/parameters/transaction.rs
+            zakura-chain 10.0.0 7e6b3e3ee6112d3dc761ae5c36effa32487802bc019f419674a590c96f7b7322 src/transaction/sighash.rs src/transaction/zip244.rs src/transaction.rs src/transparent.rs src/transparent/serialize.rs src/sapling/shielded_data.rs src/orchard/shielded_data.rs src/serialization/zcash_serialize.rs src/serialization/compact_size.rs src/parameters/transaction.rs src/transaction/sighash/v4.rs src/transaction/joinsplit.rs src/sprout/joinsplit.rs src/sapling/spend.rs src/sapling/output.rs src/amount.rs
             zcash_script 0.6.0 10106859d08a2a4119af8a0fa8db72afe35647768b562f94b7a2124adad41275 src/signature.rs src/interpreter.rs
           # `unsafe` in a pinned file, outside the functions the Lean transcribes. One per line:
           #   <name> <version> <file> <line>

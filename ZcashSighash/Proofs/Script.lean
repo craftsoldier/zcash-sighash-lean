@@ -110,7 +110,8 @@ end
 /-- **Versions 3 and 4.** The callback hashes the signature's own hash-type byte, whatever it
     is: every byte gives a digest (ZIP 143 has no undefined hash type), and the byte is the one
     the digest commits to, not a canonical form (GHSA-8m29's V4 case). It panics only where the
-    `SigHasher` does (`hsh` assumes it gives a digest). -/
+    `SigHasher` does (`hsh` assumes it gives a digest); for version 4, Zakura's never does
+    (`calculateSighash_native_v4`). -/
 theorem calculateSighash_v4 (sigHasher : SigHasher) (version : ℕ) (hv : version < 5)
     (outputsLen inputIndex : ℕ) (scriptCode : List Byte) (b : Byte) (hashType : HashType)
     (hb : hashType.rawBits = b.setWidth 32) (d : Blake2bHash)

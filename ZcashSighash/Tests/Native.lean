@@ -3,7 +3,7 @@ Zakura's own ZIP 244 / ZIP 229 digests on ZIP 244's test vectors and the two ver
 transactions: each transaction's identifier and auth digest, its shielded signature digest, and
 its transparent input's signature digest under each hash type the vector gives one for.
 -/
-import ZcashSighash.Verifier.Native
+import ZcashSighash.Verifier.NativeV4
 import ZcashSighash.Proofs.Native
 import ZcashSighash.Tests.Spec
 
@@ -120,5 +120,55 @@ def testCoinbaseScript : CoinbaseScript :=
 -- A non-coinbase input has none to rebuild.
 #guard (Native.Input.prevOut ⟨List.Vector.replicate 32 1, 0⟩ [0xaa] 0).coinbaseScript
     testCoinbaseScript == none
+
+/-! ## Version 4 -/
+
+/-- A byte list as a vector of `n` bytes, zero-padded or cut. -/
+def toVec (n : ℕ) (l : List Byte) : Bytes n :=
+  ⟨(l ++ List.replicate n 0).take n, by simp⟩
+
+/-- A decoded version 4 transaction as Zakura's parser holds it: a null prevout as a coinbase
+    input, each component only when it is not empty. -/
+def toV4 (tx : LegacyTransaction) : Native.V4.Transaction where
+  inputs := tx.transparent.vin.map fun i =>
+    if i.prevout.IsNull then .coinbase 1 [] i.nSequence
+    else .prevOut ⟨i.prevout.hash, i.prevout.n⟩ [] i.nSequence
+  outputs := tx.transparent.vout.map fun o => ⟨o.value, o.scriptPubKey⟩
+  lockTime := tx.header.lockTime
+  expiryHeight := tx.header.expiryHeight
+  joinsplitData :=
+    match tx.joinSplits.map fun js => (⟨js.vpubOld, js.vpubNew, js.anchor, js.nullifiers,
+        js.commitments, js.ephemeralKey, js.randomSeed, js.macs, toVec 192 js.zkproof,
+        js.encCiphertexts⟩ : Native.V4.JoinSplit) with
+    | [] => none
+    | js :: jss => some ⟨js, jss, tx.joinSplitPubKey, toVec 64 []⟩
+  saplingShieldedData :=
+    let spends := tx.saplingSpends.map fun s =>
+      (⟨s.cv, s.anchor, s.nullifier, s.rk, s.zkproof, s.spendAuthSig⟩ : Native.V4.Spend)
+    let outputs := tx.saplingOutputs.map fun o => (⟨o.cv, o.cmu, o.ephemeralKey,
+      o.encCiphertext, o.outCiphertext, o.zkproof⟩ : Native.SaplingOutput)
+    match spends, outputs with
+    | [], [] => none
+    | sp :: sps, os => some ⟨tx.valueBalance, .spendsAndMaybeOutputs ⟨sp, sps⟩ os, toVec 64 []⟩
+    | [], o :: os => some ⟨tx.valueBalance, .justOutputs ⟨o, os⟩, toVec 64 []⟩
+
+/-- Whether Zakura's native code gives the ZIP 243 vector's signature digest, through
+    `SigHasher::sighash_v4_raw`. -/
+def checkNativeV4 (v : LegacyVector) : Bool :=
+  let spent : List TxOut := match v.transparentInput with
+    | none => []
+    | some i => List.replicate i ⟨0, []⟩ ++ [⟨.ofNat _ v.amount, []⟩]
+  match (legacyDecoder (.ofNat _ v.branch.id) spent).run' (hex v.tx) with
+  | none => false
+  | some tx =>
+    let previous := tx.transparent.vin.map fun i => (⟨i.spent.value, []⟩ : Native.Output)
+    match Native.V4.V4Sighash.new (toV4 tx) (some (.ofNat _ v.branch.id)) previous with
+    | some (some s) =>
+      Native.V4.sigHasherSighashV4Raw s (.ofNat _ v.hashType)
+          (v.transparentInput.map fun i => (i, hex v.scriptCode)) ==
+        some (hex v.sighash)
+    | _ => false
+
+#guard zip243Vectors.map checkNativeV4 = List.replicate 10 true
 
 end ZcashSighash.Tests

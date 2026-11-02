@@ -7,7 +7,7 @@ The transcribed `zcash_primitives` on ZIP 244's test vectors, as its own test do
 version 6 transactions' digests, and `v4_signature_hash` on ZIP 143's and ZIP 243's vectors
 (`zip_0143`, `zip_0243`, lines 1084–1148).
 -/
-import ZcashSighash.Verifier.SighashV4
+import ZcashSighash.Verifier.Zakura
 import ZcashSighash.Tests.Spec
 
 namespace ZcashSighash.Tests
@@ -163,5 +163,77 @@ def checkLegacyVerifier (v : LegacyVector) : Bool :=
 #guard zip143Vectors.map checkLegacyVerifier = List.replicate 10 true
 
 #guard zip243Vectors.map checkLegacyVerifier = List.replicate 10 true
+
+/-! ## Zakura -/
+
+/-- Whether Zakura's digests are the vector's (`zakura-primitives` 4.0.0's own `zip_0244` test). -/
+def checkZakura (v : Zip244Vector) : Bool :=
+  match decode (hex v.tx) (v.amounts.zip v.scriptPubKeys |>.map
+      fun (a, s) => ⟨.ofNat _ a, hex s⟩) with
+  | none => false
+  | some stx =>
+    let tx := toTransactionData stx
+    match Zakura.TransactionData.txIdDigests tx with
+    | some digests =>
+      Zakura.toTxid tx.version tx.consensusBranchId digests == some (hex v.txid) &&
+      Zakura.TransactionData.authCommitment tx == some (hex v.authDigest) &&
+      Zakura.signatureHash tx .shielded digests == some (hex v.sighashShielded) &&
+      match v.transparentInput, tx.transparentBundle with
+      | none, _ => true
+      | some i, some bundle =>
+        (hashTypes v).all fun (ht, expected) =>
+          match Transparent.SighashType.parse ht.toByte with
+          | none => false
+          | some hashType =>
+            match Transparent.SignableInput.fromParts bundle hashType i
+                (bundle.authorization.inputScriptpubkeys.getD i ⟨[]⟩)
+                (bundle.authorization.inputScriptpubkeys.getD i ⟨[]⟩)
+                (bundle.authorization.inputAmounts.getD i 0) with
+            | .error _ => false
+            | .ok input =>
+              let digest := Zakura.signatureHash tx (.transparent input) digests
+              match expected with
+              | some e => digest == some (hex e)
+              | none => digest.isSome
+      | some _, none => false
+    | none => false
+
+#guard zip244Vectors.map checkZakura = List.replicate 10 true
+
+/-- Whether Zakura gives the version 6 vector's digests. -/
+def checkZakuraV6 (v : V6Vector) : Bool :=
+  let tx := toTransactionDataV6 v.tx
+  match Zakura.TransactionData.txIdDigests tx with
+  | some digests =>
+    digests.headerDigest == hex v.headerDigest &&
+    Zakura.toTxid tx.version tx.consensusBranchId digests == some (hex v.txid) &&
+    (v.authDigest.all fun d => Zakura.TransactionData.authCommitment tx == some (hex d)) &&
+    v.sighashShielded.all fun d => Zakura.signatureHash tx .shielded digests == some (hex d)
+  | none => false
+
+#guard v6Vectors.map checkZakuraV6 = [true, true]
+
+/-- Whether Zakura's `v4_signature_hash` gives the vector's digest. -/
+def checkZakuraLegacy (v : LegacyVector) : Bool :=
+  match (legacyDecoder (.ofNat _ v.branch.id) []).run' (hex v.tx) with
+  | none => false
+  | some stx =>
+    let tx := legacyToTransactionData stx (match stx.format with | .v3 => false | .v4 => true)
+    let input? : Option SignableInput := match v.transparentInput, tx.transparentBundle with
+      | none, _ => some .shielded
+      | some i, some bundle =>
+        match Transparent.SighashType.parse (.ofNat _ v.hashType) with
+        | none => none
+        | some hashType =>
+          match Transparent.SignableInput.fromParts bundle hashType i ⟨hex v.scriptCode⟩
+              ⟨hex v.scriptCode⟩ (.ofNat _ v.amount) with
+          | .ok input => some (.transparent input)
+          | .error _ => none
+      | some _, none => none
+    match input? with
+    | some input => Zakura.v4SignatureHash tx input == some (hex v.sighash)
+    | none => false
+
+#guard (zip143Vectors ++ zip243Vectors).map checkZakuraLegacy = List.replicate 20 true
 
 end ZcashSighash.Tests

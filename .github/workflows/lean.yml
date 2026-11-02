@@ -22,9 +22,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # The crates `ZcashSighash/Verifier/` transcribes, fetched from crates.io: each `.crate`
-      # file's SHA-256 must be the pinned one and the crates.io index's, and each source file
-      # the Lean cites must be in it. One pin per line:
+      # The crates `ZcashSighash/Verifier/` transcribes, librustzcash's and Zakura's, fetched from
+      # crates.io: each `.crate` file's SHA-256 must be the pinned one and the crates.io index's,
+      # and each source file the Lean cites must be in it. One pin per line:
       #   <name> <version> <sha256> <cited files>
       - name: Check the pinned crates
         env:
@@ -37,6 +37,11 @@ jobs:
             sapling-crypto 0.9.0 4a2cbdcfeef20006adf72699cd466f21fe349674277cc05d3fc9b7302db7b182 src/bundle.rs
             nonempty 0.11.0 549e471b99ccaf2f89101bec68f4d244457d5a95a9c3d0672e9564124397741d src/lib.rs
             blake2b_simd 1.0.4 b79834656f71332577234b50bfc009996f7449e0c056884e6a02492ded0ca2f3 src/lib.rs
+            zakura-primitives 4.0.0 c380aeac887e935cbe05aebe0f417cb1cd16ecc802ee67b05b1cbaf2294d8467 src/transaction/mod.rs src/transaction/txid.rs src/transaction/sighash.rs src/transaction/sighash_v4.rs src/transaction/sighash_v5.rs src/transaction/sighash_v6.rs src/transaction/tests.rs
+            zakura-transparent 4.0.0 56d9a18d51d990c681baf2b6eb427173ba7899f58d9c0f8966901d2257bda9e4 src/address.rs src/bundle.rs
+            zakura-protocol 4.0.0 b28415ef2e0210e62bc4f9277a1d2878aecdcf13d71dc92aac5582a108cd1ff5 src/encoding.rs
+            zakura-orchard 4.0.0 ded68d0841754e5cd9c6a976e3c1bf64275fbfa4cfca0e5b4ee5ee44d5bb7e74 src/bundle/commitments.rs src/action.rs src/note.rs
+            zakura-sapling-crypto 4.0.0 c723f61c7b67b057185edf592111ffab15909b7f2649b6b5690ee6ac47d70d5d src/bundle.rs
         run: |
           set -euo pipefail
           while read -r name version sha files; do

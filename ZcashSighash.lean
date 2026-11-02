@@ -24,3 +24,4 @@ public import ZcashSighash.Verifier.Shielded
 public import ZcashSighash.Verifier.TxId
 public import ZcashSighash.Verifier.Sighash
 public import ZcashSighash.Verifier.SighashV4
+public import ZcashSighash.Verifier.Zakura

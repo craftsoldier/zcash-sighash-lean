@@ -189,14 +189,110 @@ theorem readV6_wellFormed {ctx : Transparent.AuthorizingContext} {s s' : List By
     fun b hb => readOrchardBundle_pool ho b hb, fun b hb => readOrchardBundle_pool hi b hb,
     fun b hb => (readTransparent_spec ht b hb).2.2, fun b hb => (readSaplingV5_spec hs b hb).1⟩
 
-/-- **The identifier of every version 5 or 6 transaction `zcash_primitives` reads is the
-    specification's**, so computing it as `Transaction::read` does (`from_data_v5`,
-    `from_data_v6`) never panics: what GHSA-qp6f did to Zebra cannot happen here. -/
+/-- Four bytes read as a little-endian integer are its `to_le_bytes`. -/
+theorem readLe_four {s s' : List Byte} {n : ℕ} (h : readLe 4 s = some (n, s')) :
+    n < 2 ^ 32 ∧ s = toLeBytes 4 (BitVec.ofNat 32 n) ++ s' := by
+  obtain ⟨bytes, s₁, hb, h⟩ := Parser.bind_eq_some.mp h
+  simp only [pure_apply, Option.some.injEq, Prod.mk.injEq] at h
+  obtain ⟨rfl, rfl⟩ := h
+  simp only [readBytes] at hb
+  split at hb
+  · next hlen =>
+    simp only [Option.some.injEq, Prod.mk.injEq] at hb
+    obtain ⟨rfl, rfl⟩ := hb
+    match s, hlen with
+    | a :: b :: c :: d :: rest, _ =>
+      have ha := a.isLt; have hb' := b.isLt; have hc := c.isLt; have hd := d.isLt
+      simp only [List.take, List.drop, List.foldr, toLeBytes, List.range, List.range.loop,
+        List.map, List.cons_append, List.nil_append, List.cons.injEq]
+      refine ⟨by omega, ?_⟩
+      refine ⟨?_, ?_, ?_, ?_, trivial⟩ <;> apply BitVec.eq_of_toNat_eq <;>
+        simp [BitVec.toNat_ofNat] <;> omega
+  · simp at hb
+
+/-- **`TxVersion::read` reads exactly `TxVersion::write`'s encoding of the version it returns**,
+    so the header digest, which hashes that version's `header()` and `version_group_id()`,
+    commits to the bytes read. -/
+theorem readTxVersion_write {s s' : List Byte} {v : TxVersion}
+    (h : readTxVersion s = some (v, s')) : s = v.write ++ s' := by
+  obtain ⟨header, s₁, hh, hk⟩ := Parser.bind_eq_some.mp h
+  clear h
+  obtain ⟨hlt, rfl⟩ := readLe_four hh
+  clear hh
+  rename' hk => h
+  have hshift : header >>> 31 = header / 2 ^ 31 := Nat.shiftRight_eq_div_pow header 31
+  have hmask : header &&& 0x7FFFFFFF = header % 2 ^ 31 :=
+    Nat.and_two_pow_sub_one_eq_mod header 31
+  simp only [hshift, hmask] at h
+  split at h
+  · obtain ⟨g, s₂, hg, hm⟩ := Parser.bind_eq_some.mp h
+    clear h
+    obtain ⟨-, rfl⟩ := readLe_four hg
+    clear hg
+    -- `readTxVersion`'s `match`, on fresh variables, so that `split` can take it apart.
+    have key : ∀ (ver g : ℕ) (s₂ : List Byte),
+        (match ver, g with
+          | 3, 0x03C48270 => pure TxVersion.v3
+          | 4, 0x892F2085 => pure TxVersion.v4
+          | 5, 0x26A7270A => pure TxVersion.v5
+          | 6, 0xD884B698 => pure TxVersion.v6
+          | _, _ => (fail : Parser TxVersion)) s₂ = some (v, s') →
+        s₂ = s' ∧ ver = v.header.toNat % 2 ^ 31 ∧ g = v.versionGroupId.toNat ∧
+          v.header.toNat / 2 ^ 31 = 1 ∧
+          v.write = toLeBytes 4 v.header ++ toLeBytes 4 v.versionGroupId := by
+      intro ver g s₂ hm
+      split at hm
+      all_goals first
+        | simp only [Native.fail_apply, reduceCtorEq] at hm
+        | simp only [pure_apply, Option.some.injEq, Prod.mk.injEq] at hm
+          obtain ⟨rfl, rfl⟩ := hm
+          exact ⟨rfl, by decide, by decide, by decide, rfl⟩
+    obtain ⟨rfl, hver, hgv, hhi, hw⟩ := key _ _ _ hm
+    have hh : BitVec.ofNat 32 header = v.header := by
+      apply BitVec.eq_of_toNat_eq
+      have := v.header.isLt
+      rw [BitVec.toNat_ofNat]
+      omega
+    have hg' : BitVec.ofNat 32 g = v.versionGroupId := by
+      rw [hgv, BitVec.ofNat_toNat, BitVec.setWidth_eq]
+    rw [hw, hh, hg', List.append_assoc]
+  · split at h
+    · simp only [pure_apply, Option.some.injEq, Prod.mk.injEq] at h
+      obtain ⟨rfl, rfl⟩ := h
+      simp [TxVersion.write, TxVersion.header,
+        Nat.mod_eq_of_lt (show header < 2147483648 by omega)]
+    · simp at h
+
+/-- **Every transaction `zcash_primitives` reads is `WellFormed`**, where `Transaction::read`
+    reads it itself (version 5 and 6). -/
+theorem read_wellFormed {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
+    {tx : TransactionData} (h : read ctx s = some (.tx tx, s')) : WellFormed tx := by
+  obtain ⟨v, s₁, -, h⟩ := Parser.bind_eq_some.mp h
+  cases v with
+  | sprout _ | v3 | v4 => simp [pure_apply] at h
+  | v5 =>
+    cases ht : readV5 ctx s₁ with
+    | none => simp [Functor.map, StateT.map, ht] at h
+    | some r =>
+      obtain ⟨t, s₂⟩ := r
+      simp [Functor.map, StateT.map, ht] at h
+      exact h.1 ▸ readV5_wellFormed ht
+  | v6 =>
+    cases ht : readV6 ctx s₁ with
+    | none => simp [Functor.map, StateT.map, ht] at h
+    | some r =>
+      obtain ⟨t, s₂⟩ := r
+      simp [Functor.map, StateT.map, ht] at h
+      exact h.1 ▸ readV6_wellFormed ht
+
+/-- **The identifier of every transaction `zcash_primitives` reads is the specification's**, so
+    computing it as `Transaction::read` does (`from_data_v5`, `from_data_v6`) never panics: what
+    GHSA-qp6f did to Zebra cannot happen here. -/
 theorem read_txid_eq {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
-    {tx : TransactionData} (h : readV5 ctx s = some (tx, s') ∨ readV6 ctx s = some (tx, s')) :
+    {tx : TransactionData} (h : read ctx s = some (.tx tx, s')) :
     tx.txIdDigests.bind (toTxid tx.version tx.consensusBranchId) =
       some (some (tx.toSpec.txid blake2b256).toList) :=
-  txid_eq tx (h.elim readV5_wellFormed readV6_wellFormed)
+  txid_eq tx (read_wellFormed h)
 
 -- The build fails if a theorem rests on anything beyond Lean's three axioms.
 /--

@@ -42,6 +42,14 @@ def TxVersion.versionGroupId : TxVersion → BitVec 32
   | .v5 => 0x26A7270A
   | .v6 => 0xD884B698
 
+/-- `TxVersion::write` (lines 148–154): the header, then the version group ID from version 3 on.
+    -/
+def TxVersion.write (v : TxVersion) : List Byte :=
+  toLeBytes 4 v.header ++
+    match v with
+    | .sprout _ => []
+    | _ => toLeBytes 4 v.versionGroupId
+
 /-- `TxVersion::has_ironwood` (lines 196–203). -/
 def TxVersion.hasIronwood : TxVersion → Bool
   | .v6 => true

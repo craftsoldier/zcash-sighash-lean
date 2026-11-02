@@ -220,4 +220,37 @@ def readV6 (ctx : Transparent.AuthorizingContext) : Parser TransactionData := do
   pure ⟨.v6, consensusBranchId, lockTime, expiryHeight, transparentBundle, none, saplingBundle,
     orchardBundle, ironwoodBundle⟩
 
+/-- `TxVersion::read` (lines 89–115), without `V7`, with `V3_TX_VERSION` to `V6_TX_VERSION` and
+    `V3_VERSION_GROUP_ID` to `V6_VERSION_GROUP_ID` (`zcash_protocol` 0.11.0, `src/constants.rs`,
+    lines 16–42): an error for an unknown format. -/
+def readTxVersion : Parser TxVersion := do
+  let header ← readLe 4
+  let overwintered := header >>> 31 = 1
+  let version := header &&& 0x7FFFFFFF
+  if overwintered then
+    match version, ← readLe 4 with
+    | 3, 0x03C48270 => pure .v3
+    | 4, 0x892F2085 => pure .v4
+    | 5, 0x26A7270A => pure .v5
+    | 6, 0xD884B698 => pure .v6
+    | _, _ => fail
+  else if 1 ≤ version then pure (.sprout (BitVec.ofNat 32 version))
+  else fail
+
+/-- What `Transaction::read` does once it has read the version: read a version 5 or 6
+    transaction, or hand an earlier one to `read_v4` (lines 989–1064), which is not transcribed. -/
+inductive ReadOutcome where
+  | tx (data : TransactionData)
+  | readV4 (version : TxVersion)
+
+/-- `Transaction::read` (lines 973–986), up to `read_v4`. The `HashReader` it reads through
+    computes only `read_v4`'s identifier, and its `consensus_branch_id` goes only to `read_v4`, so
+    both are left out. -/
+def read (ctx : Transparent.AuthorizingContext) : Parser ReadOutcome := do
+  let version ← readTxVersion
+  match version with
+  | .sprout _ | .v3 | .v4 => pure (.readV4 version)
+  | .v5 => ReadOutcome.tx <$> readV5 ctx
+  | .v6 => ReadOutcome.tx <$> readV6 ctx
+
 end ZcashSighash.Verifier.Read

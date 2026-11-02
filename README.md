@@ -14,8 +14,9 @@ them gives the specification's digests with BLAKE2b-256. Each theorem states its
   panics.
 - `zakura-primitives` 4.0.0 (Zakura's fork of it): the same digests under the same hypotheses,
   for scripts of any length. Zakura's node computes version 4 to 6 signature digests, and version
-  5 and 6 identifiers and auth digests, with its own code in `zakura-chain`, which this
-  repository does not cover.
+  5 and 6 identifiers and auth digests, with its own code in `zakura-chain`. Its version 5 and 6
+  code is transcribed and gives the test vectors' digests, and its thirteen constant digests are
+  proven; that it computes the specification's digests is not yet proven.
 - `zakura-script` 5.0.0, the callback that gives `zcash_script` 0.6.0's `OP_CHECKSIG` its digest:
   in versions 5 and 6, the specification's digest, or none where ZIP 244 says validation fails
   (an undefined hash type, or `SIGHASH_SINGLE` without a corresponding output), which fails the
@@ -27,7 +28,7 @@ them gives the specification's digests with BLAKE2b-256. Each theorem states its
 | `zcash_primitives`  | 0.31.0  | Proven, versions 3 to 6  | `blake2b_simd` computes BLAKE2b |
 | `zakura-primitives` | 4.0.0   | Proven, versions 3 to 6  | `blake2b_simd` computes BLAKE2b |
 | `zakura-script`     | 5.0.0   | Proven, versions 3 to 6  | Its `SigHasher`'s digests       |
-| `zakura-chain`      | 10.0.0  | Not covered              |                                 |
+| `zakura-chain`      | 10.0.0  | Transcribed and tested   | Equivalence not yet proven      |
 
 The specification and both transcriptions give the digests of ZIP 244's, ZIP 143's and ZIP
 243's test vectors, and of the two version 6 transactions in the crates' own tests. Versions 1

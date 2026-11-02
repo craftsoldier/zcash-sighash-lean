@@ -18,4 +18,4 @@ package «zcashSighash» where
     and 244's. -/
 @[default_target] lean_lib «Tests» where
   roots := #[`ZcashSighash.Tests.Blake2b, `ZcashSighash.Tests.Zip243, `ZcashSighash.Tests.Zip244,
-    `ZcashSighash.Tests.Spec, `ZcashSighash.Tests.Verifier]
+    `ZcashSighash.Tests.Spec, `ZcashSighash.Tests.Verifier, `ZcashSighash.Tests.Native]

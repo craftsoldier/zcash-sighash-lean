@@ -13,6 +13,8 @@
 * `Proofs/Seams.lean`: what it computes outside those theorems' hypotheses.
 * `Verifier/Script.lean`: Zakura's sighash callback and `zcash_script`'s signature check.
 * `Proofs/Script.lean`: the callback gives each signature check the specification's digest.
+* `Verifier/Native.lean`: Zakura's own digests, which its node validates blocks with.
+* `Proofs/Native.lean`: their constants are the digests of empty components.
 -/
 module
 
@@ -24,6 +26,7 @@ public import ZcashSighash.Proofs.Seams
 public import ZcashSighash.Proofs.VerifierV4
 public import ZcashSighash.Proofs.Zakura
 public import ZcashSighash.Proofs.Script
+public import ZcashSighash.Proofs.Native
 public import ZcashSighash.Verifier.Blake2b
 public import ZcashSighash.Verifier.Encoding
 public import ZcashSighash.Verifier.Transparent
@@ -33,3 +36,4 @@ public import ZcashSighash.Verifier.Sighash
 public import ZcashSighash.Verifier.SighashV4
 public import ZcashSighash.Verifier.Zakura
 public import ZcashSighash.Verifier.Script
+public import ZcashSighash.Verifier.Native

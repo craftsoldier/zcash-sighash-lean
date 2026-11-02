@@ -2,7 +2,9 @@
 BLAKE2b (RFC 7693), and the parts of the `blake2b_simd 1.0.4` interface `zcash_primitives` calls.
 
 `blake2b` computes the hash. It is the plain sequential algorithm of RFC 7693, §3. Copied from
-craftsoldier/equihash-lean (`Equihash/Verifier/Blake2b.lean`), without its Equihash `HashFn`.
+craftsoldier/equihash-lean (`Equihash/Verifier/Blake2b.lean`), without its Equihash `HashFn`, and
+with its loops over `List.range`, which the kernel can evaluate from a module (`[0:n]` loops it
+cannot), so that a proof can compute a digest.
 -/
 module
 
@@ -59,7 +61,7 @@ def compress (h : Array UInt64) (block : List ℕ) (t : ℕ) (last : Bool) : Arr
   v := v.set! 13 (v[13]! ^^^ UInt64.ofNat (t / 2 ^ 64))
   if last then
     v := v.set! 14 (~~~v[14]!)
-  for i in [0:12] do
+  for i in List.range 12 do
     let s := sigma[i % 10]!
     v := mix v 0 4 8 12 m[s[0]!]! m[s[1]!]!
     v := mix v 1 5 9 13 m[s[2]!]! m[s[3]!]!
@@ -83,7 +85,7 @@ def finalState (outLen : ℕ) (personal input : List ℕ) : Array UInt64 := Id.r
   h := h.set! 7 (h[7]! ^^^ word personal 1)
   -- The input in 128-byte blocks; an empty input is one empty block.
   let blocks := max 1 ((input.length + 127) / 128)
-  for i in [0:blocks] do
+  for i in List.range blocks do
     let last := i + 1 == blocks
     let t := if last then input.length else 128 * (i + 1)
     h := compress h ((input.drop (128 * i)).take 128) t last

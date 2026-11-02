@@ -1,8 +1,10 @@
 /-
-What Zakura's transparent parser guarantees (G3): every input and output it parses meets the
+What Zakura's transparent parser guarantees: every input and output it parses meets the
 hypotheses of the native digest theorems (`Proofs/Native.lean`). Their scripts fit in a protocol
 message, no input that spends a coin has the null outpoint, and each coinbase input's `scriptSig`
-is the one `coinbase_script` rebuilds.
+is the one `coinbase_script` rebuilds. Its lemmas on the shared parser (`Parser.bind_eq_some`,
+`pure_apply`, `fail_apply`, `readCount_forall`, `readLe_four`) also serve `zcash_primitives`'
+reader (`Proofs/Read.lean`).
 -/
 module
 
@@ -266,7 +268,7 @@ theorem readVec_forall {α : Type} {read : Parser α} {P : α → Prop}
   obtain ⟨n, s₁, -, h⟩ := Parser.bind_eq_some.mp h
   exact readCount_forall hr n s₁ s' as h
 
-/-- **Zakura's parser gives the native digest theorems their hypotheses** (G3): the transparent
+/-- **Zakura's parser gives the native digest theorems their hypotheses**: the transparent
     inputs and outputs it parses (`Vec<Input>`, `Vec<Output>`) have no input spending a coin
     with the null outpoint (`NoNullPrevOut`), each input's `scriptSig` rebuilt and fitting in a
     protocol message (`Input.AuthFits`), and each output's script fitting in one (`CacheFits`,

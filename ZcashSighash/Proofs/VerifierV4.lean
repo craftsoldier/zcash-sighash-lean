@@ -369,7 +369,6 @@ theorem v4SignatureHash_transparent (tx : TransactionData)
       *] <;>
     congr!
 
-
 /-- The transparent part the specification sees: the bundle's, or none. -/
 def TransactionData.transparentSpec (tx : TransactionData) : Spec.Transparent :=
   (tx.transparentBundle.map Transparent.Bundle.toSpec).getD ⟨[], []⟩

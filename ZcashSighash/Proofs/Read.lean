@@ -1,8 +1,10 @@
 /-
-What `zcash_primitives`' reader guarantees (G3): every version 5 and 6 transaction it reads is
-`WellFormed`, the hypothesis of the digest theorems (`Proofs/Verifier.lean`). So its identifier
-is the specification's, and computing it, which `Transaction::read` does at once
-(`from_data_v5`), never panics: the shape of GHSA-qp6f.
+What `zcash_primitives`' reader guarantees: every version 5 and 6 transaction
+`Transaction::read` returns is `WellFormed`, the hypothesis of the digest theorems
+(`Proofs/Verifier.lean`), and begins with the encoding of its version (`read_wellFormed`,
+`read_write`). So its identifier is the specification's, and computing it, which
+`Transaction::read` does at once (`from_data_v5`, `from_data_v6`), never panics: the shape of
+GHSA-qp6f (`read_txid_eq`).
 -/
 module
 
@@ -159,8 +161,8 @@ theorem readOrchardBundle_pool {pool : Orchard.ValuePool} {s s' : List Byte}
       simp only [Option.some.injEq] at hb
       rw [← hb]
 
-/-- **Every version 5 transaction `zcash_primitives` reads is `WellFormed`**: the digest
-    theorems' hypothesis holds of what parsing returns. -/
+/-- `read_v5`, passed `V5`, returns a `WellFormed` transaction: the digest theorems' hypothesis
+    holds of what parsing returns. -/
 theorem readV5_wellFormed {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
     {tx : TransactionData} (h : readV5 ctx .v5 s = some (tx, s')) : WellFormed tx := by
   obtain ⟨_, s₁, -, h⟩ := Parser.bind_eq_some.mp h
@@ -174,7 +176,7 @@ theorem readV5_wellFormed {ctx : Transparent.AuthorizingContext} {s s' : List By
     fun b hb => readOrchardBundle_pool ho b hb, fun b hb => (by cases hb),
     fun b hb => (readTransparent_spec ht b hb).2.2, fun b hb => (readSaplingV5_spec hs b hb).1⟩
 
-/-- **Every version 6 transaction `zcash_primitives` reads is `WellFormed`.** -/
+/-- `read_v6`, passed `V6`, returns a `WellFormed` transaction. -/
 theorem readV6_wellFormed {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
     {tx : TransactionData} (h : readV6 ctx .v6 s = some (tx, s')) : WellFormed tx := by
   obtain ⟨_, s₁, -, h⟩ := Parser.bind_eq_some.mp h

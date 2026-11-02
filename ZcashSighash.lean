@@ -17,6 +17,8 @@
 * `Proofs/Native.lean`: they compute the specification's digests, for versions 5 and 6.
 * `Verifier/NativeV4.lean`: Zakura's own version 4 signature digest.
 * `Proofs/NativeV4.lean`: it computes the specification's digest.
+* `Verifier/BlockCommitment.lean`: Zakura's commitment to a block's auth digests.
+* `Proofs/BlockCommitment.lean`: it is the specification's.
 -/
 module
 
@@ -30,6 +32,7 @@ public import ZcashSighash.Proofs.Zakura
 public import ZcashSighash.Proofs.Script
 public import ZcashSighash.Proofs.Native
 public import ZcashSighash.Proofs.NativeV4
+public import ZcashSighash.Proofs.BlockCommitment
 public import ZcashSighash.Verifier.Blake2b
 public import ZcashSighash.Verifier.Encoding
 public import ZcashSighash.Verifier.Transparent
@@ -41,3 +44,4 @@ public import ZcashSighash.Verifier.Zakura
 public import ZcashSighash.Verifier.Script
 public import ZcashSighash.Verifier.Native
 public import ZcashSighash.Verifier.NativeV4
+public import ZcashSighash.Verifier.BlockCommitment

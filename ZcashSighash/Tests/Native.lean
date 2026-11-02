@@ -3,9 +3,11 @@ Zakura's own ZIP 244 / ZIP 229 digests on ZIP 244's test vectors and the two ver
 transactions: each transaction's identifier and auth digest, its shielded signature digest, and
 its transparent input's signature digest under each hash type the vector gives one for. Its own
 ZIP 243 digest on ZIP 243's vectors. Then the signature check's failure cases: every byte a
-signature can end with, through Zakura's callback over its own `SigHasher`.
+signature can end with, through Zakura's callback over its own `SigHasher`. Last, the crate's
+own tests of the block's auth data root.
 -/
 import ZcashSighash.Verifier.NativeV4
+import ZcashSighash.Verifier.BlockCommitment
 import ZcashSighash.Proofs.Native
 import ZcashSighash.Tests.Spec
 
@@ -227,5 +229,17 @@ def checkEveryByteV4 (v : LegacyVector) : Bool :=
     | _ => false
 
 #guard zip243Vectors.map checkEveryByteV4 = List.replicate 10 true
+
+/-! ## The block's auth data root (`src/block/merkle.rs`, lines 438–474) -/
+
+-- `auth_data_padding`: three leaves have the root of the same leaves and a null fourth.
+#guard Native.authDataRoot [List.replicate 32 0x42, List.replicate 32 0xaa,
+    List.replicate 32 0x77] ==
+  Native.authDataRoot [List.replicate 32 0x42, List.replicate 32 0xaa,
+    List.replicate 32 0x77, List.replicate 32 0]
+
+-- `auth_data_pre_v5`: a pre-version 5 transaction's leaf is the placeholder.
+#guard Native.authDataRootOfTransactions [none] ==
+  Native.authDataRoot [List.replicate 32 0xff]
 
 end ZcashSighash.Tests

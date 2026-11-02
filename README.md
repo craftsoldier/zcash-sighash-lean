@@ -17,7 +17,9 @@ them gives the specification's digests with BLAKE2b-256. Each theorem states its
   5 and 6 identifiers and auth digests, with its own code in `zakura-chain`.
 - `zakura-chain` 10.0.0: that code gives the specification's digests, for transactions as it
   parses them: scripts that fit in a protocol message, a coin for each input, and, in versions
-  5 and 6, no input that spends a coin with the null outpoint.
+  5 and 6, no input that spends a coin with the null outpoint. Its block header's commitment to
+  the transactions' auth digests (`hashAuthDataRoot`, and `hashBlockCommitments` over it) is
+  ZIP 244's, for any number of transactions.
 - `zakura-script` 5.0.0, the callback that gives `zcash_script` 0.6.0's `OP_CHECKSIG` its digest:
   in versions 5 and 6, the specification's digest, or none where ZIP 244 says validation fails
   (an undefined hash type, or `SIGHASH_SINGLE` without a corresponding output), which fails the

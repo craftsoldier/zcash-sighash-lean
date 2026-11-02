@@ -4,6 +4,7 @@
 * The version 5 transaction identifier, signature and auth digests (ZIP 244, §T, §S and §A).
 * Their version 6 forms (ZIP 229).
 * The version 3 and 4 signature digests (ZIP 143, ZIP 243).
+* The block's commitment to its transactions' auth digests (ZIP 244, Block Header Changes).
 * The transparent signature check.
 
 The signature and identifier digests are first stated over the header, Sapling, Orchard and
@@ -12,6 +13,7 @@ Ironwood digests, then over a transaction's fields.
 module
 
 public import Mathlib.Data.Vector.Basic
+public import Mathlib.Data.Nat.Log
 
 @[expose] public section
 
@@ -509,6 +511,43 @@ def Transaction.authDigest (tx : Transaction) : Digest :=
       match tx.format with
       | .v5 => []
       | .v6 ironwood => [actionsAuthDigest H ironwoodV6 true ironwood])
+
+/-! ## Block commitments (ZIP 244, Block Header Changes) -/
+
+/-- The "null" hash value `[0u8; 32]`. -/
+def nullDigest : Digest := List.Vector.replicate 32 0
+
+/-- A transaction's leaf: its auth digest, or for a version before 5 (`none`),
+    > a placeholder value consisting of 32 bytes of ``0xFF`` -/
+def authDataLeaf (authDigest : Option Digest) : Digest :=
+  authDigest.getD (List.Vector.replicate 32 0xff)
+
+/-- The root of the binary Merkle tree of height `h` over the first `2 ^ h` leaves. -/
+def authDataTree : ℕ → List Digest → Digest
+  | 0, leaves => leaves.headD nullDigest
+  | h + 1, leaves => node H (personal "ZcashAuthDatHash")
+    [authDataTree h (leaves.take (2 ^ h)), authDataTree h (leaves.drop (2 ^ h))]
+
+/-- > ``hashAuthDataRoot`` [...] is the root of a binary Merkle tree of transaction authorizing
+    > data commitments having height $\mathsf{ceil(log_2(tx\_count))}$, padded with leaves having
+    > the "null" hash value ``[0u8; 32]``. [...] Non-leaf hashes in this tree are BLAKE2b-256
+    > hashes personalized by the string ``"ZcashAuthDatHash"``.
+
+**Not stated in the specification.** A non-leaf hash is of its children's concatenation, left
+first. With no leaf, which the specification excludes (`tx_count > 0`), the root is the null
+hash. -/
+def hashAuthDataRoot (leaves : List Digest) : Digest :=
+  authDataTree H (Nat.clog 2 leaves.length)
+    (leaves ++ List.replicate (2 ^ Nat.clog 2 leaves.length - leaves.length) nullDigest)
+
+/-- > ``hashBlockCommitments``. The value of this hash is the BLAKE2b-256 hash personalized by
+    > the string ``"ZcashBlockCommit"`` of the following elements::
+    >
+    >    hashLightClientRoot (as described in ZIP 221)
+    >    hashAuthDataRoot    (as described below)
+    >    terminator          [0u8;32] -/
+def hashBlockCommitments (lightClientRoot authDataRoot : Digest) : Digest :=
+  node H (personal "ZcashBlockCommit") [lightClientRoot, authDataRoot, nullDigest]
 
 /-! ## The signature check -/
 

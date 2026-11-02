@@ -2,8 +2,9 @@
 What Zakura's transparent parser guarantees: every input and output it parses meets the
 hypotheses of the native digest theorems (`Proofs/Native.lean`). Their scripts fit in a protocol
 message, no input that spends a coin has the null outpoint, and each coinbase input's `scriptSig`
-is the one `coinbase_script` rebuilds. The lemmas on the parser's primitives (`readBytes`,
-`readLe`) also serve `zcash_primitives`' reader (`Proofs/Read.lean`).
+is the one `coinbase_script` rebuilds. Its lemmas on the shared parser (`Parser.bind_eq_some`,
+`pure_apply`, `fail_apply`, `readCount_forall`, `readLe_four`) also serve `zcash_primitives`'
+reader (`Proofs/Read.lean`).
 -/
 module
 

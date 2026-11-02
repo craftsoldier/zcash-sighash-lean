@@ -1156,7 +1156,8 @@ theorem transparentSigDigest_eq (b : Transparent.Bundle) (hne : b.vin ≠ [] ∨
 
 /-! ## The signature hash -/
 
-/-- The ZIP 244 digests of a well-formed transaction, as the specification's. -/
+/-- The digests of a well-formed transaction, as the specification's: ZIP 244's, with ZIP 229's
+    in version 6. Named after `zcash_primitives`' `Zip244Digests`, which holds both. -/
 def zip244DigestsOf (tx : TransactionData) : Zip244Digests :=
   ⟨(Spec.headerDigest blake2b256 tx.toSpec.header).toList, tx.transparentBundle.map txidDigestsOf,
     tx.saplingBundle.map fun b => (Spec.saplingDigest blake2b256 tx.toSpec.format b.toSpec).toList,

@@ -306,8 +306,9 @@ theorem signatureHash_eq (tx : TransactionData) (h : WellFormed tx) (b : Transpa
     simp [Spec.signatureDigest, Spec.Transaction.version, Spec.Transaction.orchardDigest,
       TransactionData.toSpec, hv, Spec.Format.IsV6, Spec.node]
 
-/-- For a well-formed transaction, Zakura's `TxIdDigester` computes the specification's ZIP 244
-    digests (`zip244DigestsOf`), the ones `signatureHash_eq` hashes. -/
+/-- For a well-formed transaction, Zakura's `TxIdDigester` computes the specification's digests
+    (`zip244DigestsOf`: ZIP 244's, with ZIP 229's in version 6), the ones `signatureHash_eq`
+    hashes. -/
 theorem txIdDigests_zip244 (tx : TransactionData) (h : WellFormed tx) :
     TransactionData.txIdDigests tx = some (zip244DigestsOf tx) := by
   rw [txIdDigests_eq' tx h, Verifier.txIdDigests_eq tx h]

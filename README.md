@@ -6,15 +6,18 @@ signature digests by ZIP 143 (version 3) and ZIP 243 (version 4). This repositor
 definitions in Lean 4, with the hash as a parameter, and proves that the Rust code that computes
 them gives the specification's digests with BLAKE2b-256. Each theorem states its hypotheses:
 
-- `zcash_primitives` 0.31.0 (librustzcash, which Zebra uses): `to_txid`, `auth_commitment` and
-  `signature_hash` give the specification's digests for every version 3 to 6 transaction its
-  encoding can express: no empty bundles, Sapling spends that share one anchor, Orchard and
-  Ironwood bundles in their own pools, scripts no longer than `MAX_COMPACT_SIZE`, and a coin for
-  each input. Every version 5 and 6 transaction its reader (`Transaction::read`) returns meets
-  all but the last, which the coins looked up for it must meet, and has the version its first 8
-  bytes encode, so its digests follow that version's rules; computing its identifier, which the
-  reader does at once, never panics. Outside those hypotheses, theorems state what it computes
-  instead, or that it panics.
+- `zcash_primitives` 0.31.0 (librustzcash, which Zebra uses): `signature_hash` gives the
+  specification's digests for every version 3 to 6 transaction its encoding can express, and
+  `to_txid` and `auth_commitment` for every version 5 and 6 one: no empty bundles, Sapling spends
+  that share one anchor, Orchard and Ironwood bundles in their own pools, scripts no longer than
+  `MAX_COMPACT_SIZE`, and a coin for each input. A version 3 or 4 transaction's identifier is the
+  SHA-256d of its encoding, which is not covered yet. Every version 5 and 6 transaction its
+  reader (`Transaction::read`) returns meets all but the last, which the coins looked up for it
+  must meet, and has the version its first 8 bytes encode, so its digests follow that version's
+  rules; computing its identifier, which the reader does at once, never panics. Zebra 7.0.0
+  parses every transaction with this reader, adding rejections of its own (`zebra-chain`
+  15.0.0), so this holds of every version 5 and 6 transaction Zebra accepts. Outside those
+  hypotheses, theorems state what it computes instead, or that it panics.
 - `zakura-primitives` 4.0.0 (Zakura's fork of it): the same digests under the same hypotheses,
   for scripts of any length. Zakura's node computes version 4 to 6 signature digests, and version
   5 and 6 identifiers and auth digests, with its own code in `zakura-chain`.

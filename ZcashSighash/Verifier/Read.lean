@@ -3,8 +3,13 @@
 (`src/transaction/mod.rs`, `src/transaction/components/{sapling,orchard}.rs`), and the readers it
 calls in `zcash_transparent` 0.11.0 and `zcash_encoding` 0.5.0, under the default features (no
 `zip-233`). A read error is `none`. An earlier version goes to `read_v4`, which is not
-transcribed: `read` stops there (`.readV4`), where the crate reads on and may still fail. Zebra
-and Zakura parse blocks with their own chain crates; this is the librustzcash reader, not theirs.
+transcribed: `read` stops there (`.readV4`), where the crate reads on and may still fail.
+
+Zebra 7.0.0 parses every transaction, in blocks and from peers, with this reader: `zebra-chain`
+15.0.0's `Transaction` wraps `zcash_primitives`' (`src/transaction.rs`, line 59), and its
+`deserialize_and_check` (lines 902–1023), which both its deserializers and its blocks
+(`src/block/serialize.rs`, line 165) go through, calls `Transaction::read` and then rejects more.
+Zakura parses with its own chain crate (`Verifier/Parse.lean`).
 
 Checks that only reject more inputs are left out: that a byte string is a valid curve point or
 field element (`read_value_commitment`, `read_rk`, `read_base`, `read_anchor`, ...), a valid

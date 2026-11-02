@@ -262,7 +262,6 @@ theorem transparentOutputsHash_eq (vout : List Transparent.TxOut)
     (fun o ho _ => by simp [TxOut.write_absorbed _ _ _ (hk o ho), unwrap_ok])]
   simp [finalize_absorbed]
 
-
 /-- Mapping `g` over `mapIdx f` forgets the index when `g ∘ f i` does not use it. -/
 theorem map_mapIdx {α β γ : Type} (l : List α) (f : ℕ → α → β) (g : β → γ) (h : α → γ)
     (hg : ∀ i a, g (f i a) = h a) : (l.mapIdx f).map g = l.map h := by
@@ -357,7 +356,6 @@ theorem hashSaplingSpends_eq (version : TxVersion) (b : Sapling.Bundle)
       Sapling.Bundle.toSpec, List.flatMap_map, saplingSpendsNoncompactPersonalization,
       TxVersion.hasIronwood]
 
-
 /-- `hash_sapling_outputs` is §T.3b's digest. -/
 theorem hashSaplingOutputs_eq (b : Sapling.Bundle) :
     hashSaplingOutputs b.shieldedOutputs =
@@ -385,7 +383,6 @@ theorem hashSaplingOutputs_eq (b : Sapling.Bundle) :
   simp [writeAll_absorbed, unwrap_ok, finalize_absorbed, Spec.node,
     Spec.saplingOutputsCompactDigest, Spec.saplingOutputsMemosDigest,
     Spec.saplingOutputsNoncompactDigest, Sapling.Bundle.toSpec, List.flatMap_map]
-
 
 /-- `hash_sapling_txid_data` is §T.3's Sapling digest, when every spend has the bundle's
     anchor. -/
@@ -415,7 +412,6 @@ theorem hashSaplingTxidEmpty_eq :
 theorem saplingDigest_empty (H : Spec.Hash) (f : Spec.Format) :
     Spec.saplingDigest H f emptySapling = H (personal "ZTxIdSaplingHash") [] := by
   simp [Spec.saplingDigest, emptySapling]
-
 
 /-- The specification's personalizations of a commitment format. -/
 def Orchard.Personalizations.toSpec (p : Orchard.Personalizations) : Spec.Personalizations :=
@@ -479,7 +475,6 @@ theorem hashBundleTxidData_eq (b : Orchard.Bundle) (v : Orchard.TxVersion)
       finalize_state_absorbed, Spec.actionsDigest, Orchard.Bundle.toSpec,
       Orchard.NonEmpty.toList, List.flatMap_map, toLeBytes_i64, Orchard.Personalizations.toSpec]
 
-
 /-- `hash_bundle_txid_empty` is the specification's digest of no actions under the format's
     personalizations; with no actions the anchor flag does not matter. -/
 theorem hashBundleTxidEmpty_eq (vp : Orchard.ValuePool) (v : Orchard.TxVersion)
@@ -497,7 +492,6 @@ theorem txHashPersonalization_eq (b : BitVec 32) :
 /-- The Rust's `"ZTxAuthHash_" || CONSENSUS_BRANCH_ID` is the specification's. -/
 theorem authPersonalization_eq (b : BitVec 32) :
     branchPersonalization (Spec.ascii "ZTxAuthHash_" 12) b = Spec.authPersonalization b := rfl
-
 
 /-- Spends sharing one anchor share the first's. -/
 theorem anchor_toSpec (b : Sapling.Bundle)
@@ -548,7 +542,6 @@ theorem digestOrchard_eq (version : TxVersion) (ob : Option Orchard.Bundle)
         hashBundleTxidData_orchardV6 b hp, unwrap_ok, orchardPersonalizations,
         TxVersion.hasIronwood]
 
-
 /-- `TxIdDigester::digest_ironwood` gives ZIP 229's Ironwood digest of the bundle, if any,
     when it is in the Ironwood pool. -/
 theorem digestIronwood_eq (ib : Option Orchard.Bundle)
@@ -562,10 +555,10 @@ theorem digestIronwood_eq (ib : Option Orchard.Bundle)
       unwrap_ok]
 
 /-- The hypotheses under which the transcription computes the specification's digests. A
-    version 5 or 6 transaction read from its encoding satisfies them (`readV5_wellFormed`,
-    `readV6_wellFormed`, `Proofs/Read.lean`): its transparent and Sapling bundles, if any, are
-    not empty; its Sapling spends share one anchor; its Orchard and Ironwood bundles are in
-    their pools; and no script in it exceeds `MAX_COMPACT_SIZE`. -/
+    version 5 or 6 transaction read from its encoding satisfies them (`read_wellFormed`,
+    `Proofs/Read.lean`): its transparent and Sapling bundles, if any, are not empty; its Sapling
+    spends share one anchor; its Orchard and Ironwood bundles are in their pools; and no script
+    in it exceeds `MAX_COMPACT_SIZE`. -/
 structure WellFormed (tx : TransactionData) : Prop where
   version : tx.version = .v5 ∨ tx.version = .v6
   transparentNonempty : ∀ b, tx.transparentBundle = some b → b.vin ≠ [] ∨ b.vout ≠ []
@@ -612,7 +605,6 @@ theorem txIdDigests_eq (tx : TransactionData) (h : WellFormed tx) :
     | some s =>
       simp [transparentDigests_eq _ (h.outputScripts _ ht),
         hashSaplingTxidData_eq _ s (anchor_toSpec s (h.saplingAnchor s hs)) _ hf]
-
 
 /-- The empty Orchard digest in version 5, as the specification gives it. -/
 theorem hashBundleTxidEmpty_orchard_v5 : Orchard.hashBundleTxidEmpty .orchard .v5 =
@@ -776,7 +768,6 @@ theorem txid_eq (tx : TransactionData) (h : WellFormed tx) :
     simp [Spec.Transaction.txid, Spec.txidDigest, Spec.Transaction.version,
       Spec.Transaction.orchardDigest, TransactionData.toSpec, hv, Spec.Format.IsV6, Spec.node]
 
-
 /-! ## The authorizing data commitment -/
 
 /-- `BlockTxCommitmentDigester::digest_transparent` is §A.1's digest of the `scriptSig`s. -/
@@ -795,7 +786,6 @@ theorem digestTransparent_eq (tx : TransactionData) (h : WellFormed tx) :
       (fun i hi _ => by simp [Script.write_absorbed _ _ _ (h.scriptSigs b ht i hi), unwrap_ok])]
     simp [finalize_absorbed, Spec.transparentScriptsDigest, TransactionData.toSpec, ht,
       List.flatMap_map]
-
 
 /-- `BlockTxCommitmentDigester::digest_sapling` is §A.2's Sapling auth digest; in version 6,
     ZIP 229's, with the anchor when there is a spend. -/
@@ -827,7 +817,6 @@ theorem digestSapling_eq (tx : TransactionData) (h : WellFormed tx) :
       simp [writeAll_absorbed, unwrap_ok, finalize_absorbed, Spec.saplingAuthDigest,
         TransactionData.toSpec, *, Sapling.Bundle.toSpec, List.flatMap_map,
         Spec.Format.IsV6, saplingAuthPersonalization, saplingAuthIncludesAnchor]
-
 
 /-- `orchard`'s version 5 Orchard personalizations are the specification's. -/
 theorem personalizations_orchardV5 :
@@ -916,7 +905,6 @@ theorem authCommitment_eq (tx : TransactionData) (h : WellFormed tx) :
     simp [hv, TxVersion.hasIronwood, finalize_absorbed, Spec.Transaction.authDigest, Spec.node,
       TransactionData.toSpec, Spec.Format.IsV6]
 
-
 /-! ## Signature hashes -/
 
 /-- On a byte `SighashType::parse` accepts, the masks `transparent_sig_digest` tests give the
@@ -967,7 +955,6 @@ theorem toSpec_scripts (b : Transparent.Bundle) (hc : ContextFits b) :
   simp [Transparent.Bundle.toSpec, Transparent.Bundle.txinToSpec, List.getD_eq_getElem?_getD,
     List.getElem?_eq_getElem (by simpa using h₂)]
 
-
 /-- `TransparentInputsDigests::new` gives §S.2c's and §S.2d's digests without
     `ANYONECANPAY`. -/
 theorem inputsDigests_new_eq (b : Transparent.Bundle) (hc : ContextFits b) :
@@ -1000,7 +987,6 @@ inductive InputRel (b : Transparent.Bundle) : SignableInput → Spec.SignableInp
       (hi : input.index = i.val) (hv : input.value = b.authorization.inputAmounts.getD i 0)
       (hs : input.scriptPubkey = b.authorization.inputScriptpubkeys.getD i ⟨[]⟩) :
       InputRel b (.transparent input) (.transparent ht i)
-
 
 /-! The kernel times out on proofs that rewrite `bind` into `Option.bind` across a long `do`
     block, so the signature hash proofs stay with `pure` and `pure_bind`. -/
@@ -1148,7 +1134,6 @@ theorem transparentSigDigest_transparent (b : Transparent.Bundle)
       List.cons_append, List.append_nil] <;>
     rfl
 
-
 /-- `transparent_sig_digest` gives §S.2's transparent signature digest. -/
 theorem transparentSigDigest_eq (b : Transparent.Bundle) (hne : b.vin ≠ [] ∨ b.vout ≠ [])
     (hk : ∀ o ∈ b.vout, o.scriptPubkey.code.length ≤ MAX_COMPACT_SIZE) (hc : ContextFits b)
@@ -1214,7 +1199,6 @@ theorem newZip244_eq (tx : TransactionData) (h : WellFormed tx)
     · obtain rfl := Option.some.inj hb'
       exact forBundle_fits b (hc b ht) d hf
 
-
 /-- `signature_hash` gives the specification's signature digest. -/
 theorem signatureHash_eq (tx : TransactionData) (h : WellFormed tx) (b : Transparent.Bundle)
     (hb : tx.transparentBundle = some b) (hc : ContextFits b) (d : Option TransparentInputsDigests)
@@ -1251,7 +1235,6 @@ theorem signatureHash_eq (tx : TransactionData) (h : WellFormed tx) (b : Transpa
       ho, ironwoodSlot]
     simp [Spec.signatureDigest, Spec.Transaction.version, Spec.Transaction.orchardDigest,
       TransactionData.toSpec, hv, Spec.Format.IsV6, Spec.node]
-
 
 /-- Without a transparent bundle, `signature_hash` gives the shielded signature digest, for a
     transparent input too. -/

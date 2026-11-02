@@ -90,7 +90,6 @@ theorem hashSaplingSpends_v5 (spends : List Sapling.SpendDescription) (hs : spen
     foldl_append_absorbed, foldl_append_absorbed]
   simp [writeAll_absorbed, unwrap_ok, finalize_absorbed, saplingSpendsNoncompactPersonalization]
 
-
 /-- Versions 1 and 2, before Overwinter, sign a SHA-256d digest these crates do not compute:
     librustzcash's and Zakura's `v4_signature_hash` panic on them, and librustzcash's
     `new_zip244` refuses them. -/

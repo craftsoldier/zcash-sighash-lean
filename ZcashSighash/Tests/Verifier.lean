@@ -260,7 +260,7 @@ def checkRead (ctx : Transparent.AuthorizingContext) (bytes rest : List Byte) (t
 /-- The first version 6 transaction's encoding (`zcash_primitives` 0.31.0,
     `src/transaction/tests.rs`, line 46), and the trailer its test reads it from (line 52). -/
 def v6Encoded : List Byte := hex "0600008098b684d8d90a19770000000001000000000000000000"
-def v6Trailer : List Byte := "next-record".toUTF8.toList.map (BitVec.ofNat 8 ·.toNat)
+def v6Trailer : List Byte := (ascii "next-record" 11).toList
 
 /- As its test checks (lines 89–98): the reader leaves the trailer, and every truncation is an
    error. -/

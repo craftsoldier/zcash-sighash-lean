@@ -60,7 +60,6 @@ theorem forIn_congr_mem {m : Type → Type} [Monad m] {α β : Type} (l : List �
     | done => rfl
     | yield y => exact ih y (fun a ha => h a (List.mem_cons_of_mem _ ha))
 
-
 /-- Zakura's `transparent_outputs_hash` is librustzcash's, when the scripts fit in a
     `compactSize`. -/
 theorem transparentOutputsHash_eq' (vout : List Transparent.TxOut)
@@ -126,7 +125,6 @@ theorem authCommitment_eq (tx : TransactionData) (h : WellFormed tx) :
   rw [← Verifier.authCommitment_eq tx h]
   unfold TransactionData.authCommitment Verifier.TransactionData.authCommitment
   rw [digestTransparent_eq' tx h]
-
 
 /-- Writing each amount's `to_i64_le_bytes` absorbs §S.2c's preimage. -/
 theorem amounts_absorbed (p : Bytes 16) (x : List Byte) (l : List (BitVec 64)) :
@@ -254,7 +252,6 @@ theorem transparentSigDigest_transparent (b : Transparent.Bundle)
       List.cons_append, List.append_nil] <;>
     rfl
 
-
 /-- Zakura's `transparent_sig_digest` gives §S.2's transparent signature digest. -/
 theorem transparentSigDigest_eq (b : Transparent.Bundle) (hne : b.vin ≠ [] ∨ b.vout ≠ [])
     (hk : ∀ o ∈ b.vout, o.scriptPubkey.code.length ≤ MAX_COMPACT_SIZE) (hc : ContextFits b)
@@ -309,9 +306,8 @@ theorem signatureHash_eq (tx : TransactionData) (h : WellFormed tx) (b : Transpa
     simp [Spec.signatureDigest, Spec.Transaction.version, Spec.Transaction.orchardDigest,
       TransactionData.toSpec, hv, Spec.Format.IsV6, Spec.node]
 
-
-
-/-- The digests Zakura computes are those `signatureHash_eq` takes. -/
+/-- For a well-formed transaction, Zakura's `TxIdDigester` computes the specification's ZIP 244
+    digests (`zip244DigestsOf`), the ones `signatureHash_eq` hashes. -/
 theorem txIdDigests_zip244 (tx : TransactionData) (h : WellFormed tx) :
     TransactionData.txIdDigests tx = some (zip244DigestsOf tx) := by
   rw [txIdDigests_eq' tx h, Verifier.txIdDigests_eq tx h]
@@ -400,7 +396,6 @@ theorem outputsStep (tx : TransactionData) (t : Spec.Transparent) (p : Bytes 16)
         Spec.digestOrZero, saplingOutputsHash_eq, List.flatMap_map, Spec.SaplingOutput.encode,
         Sapling.OutputDescription.toSpec]
 
-
 /-- Zakura's `v4_signature_hash` gives ZIP 143's or ZIP 243's digest for a transparent input. -/
 theorem v4SignatureHash_transparent (tx : TransactionData)
     (hv : tx.version = .v3 ∨ tx.version = .v4)
@@ -476,7 +471,6 @@ theorem v4SignatureHash_transparent (tx : TransactionData)
       *] <;>
     congr!
 
-
 /-- Zakura's `v4_signature_hash` gives the digest a JoinSplit, Spend or binding signature signs. -/
 theorem v4SignatureHash_shielded (tx : TransactionData)
     (hv : tx.version = .v3 ∨ tx.version = .v4)
@@ -542,7 +536,6 @@ theorem v4SignatureHash_shielded (tx : TransactionData)
       Spec.digestOrZero, hpers, List.append_assoc, List.nil_append, List.append_nil,
       Bool.false_eq_true, ite_true, ite_false, some_eq_pure] <;>
     congr!
-
 
 /-- Without a transparent bundle, Zakura's `signature_hash` gives the shielded signature digest,
     for a transparent input too. -/

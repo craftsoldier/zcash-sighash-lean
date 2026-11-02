@@ -281,8 +281,7 @@ theorem readV6_version {ctx : Transparent.AuthorizingContext} {v : TxVersion} {s
   rw [← h₅.1]
 
 /-- **A transaction `Transaction::read` returns begins with `TxVersion::write`'s encoding of its
-    version**, so its header digest, which hashes that version's `header()` and
-    `version_group_id()`, commits to the bytes read. -/
+    version**: the version whose digest rules apply is the one its bytes encode. -/
 theorem read_write {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
     {tx : TransactionData} (h : read ctx s = some (.tx tx, s')) :
     ∃ s₁, s = tx.version.write ++ s₁ := by

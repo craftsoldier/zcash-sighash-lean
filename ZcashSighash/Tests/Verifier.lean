@@ -6,13 +6,15 @@ The transcribed `zcash_primitives` on ZIP 244's test vectors, as its own test do
 `SIGHASH_SINGLE` digest, the crate still computes one, as its test skips it. Likewise the crates'
 own transactions' digests, and `v4_signature_hash` on ZIP 143's and ZIP 243's vectors
 (`zip_0143`, `zip_0243`, lines 1084–1148). Then `Transaction::read`: on ZIP 244's vectors and the
-crates' own, truncated, on version headers, and on values at the edges of their range. Last,
-Zebra's `sighash` on what the reader reads from ZIP 244's vectors and from the NU7 transactions of
-`zebra-chain`'s own test, and its `sighash_v4_raw` on ZIP 143's and ZIP 243's vectors.
+crates' own, truncated, and on version headers; `Transaction::write` on what it read; and the
+reader on values at the edges of their range. Last, Zebra's `sighash` on what the reader reads
+from ZIP 244's vectors and from the NU7 transactions of `zebra-chain`'s own test, and its
+`sighash_v4_raw` on ZIP 143's and ZIP 243's vectors.
 -/
 import ZcashSighash.Verifier.Zakura
 import ZcashSighash.Verifier.Read
 import ZcashSighash.Verifier.Zebra
+import ZcashSighash.Verifier.Write
 import ZcashSighash.Tests.Spec
 
 namespace ZcashSighash.Tests
@@ -307,6 +309,40 @@ def readsVersion (bytes : List Byte) (p : TxVersion → Bool) : Bool :=
 #guard (Read.readTxVersion (hex "0600008068636174")).isNone
 #guard (Read.readTxVersion (hex "0700008068636174")).isNone
 #guard (Read.readTxVersion (hex "00000000")).isNone
+
+/-! ## `Transaction::write` -/
+
+/-- Whether `Transaction::write` writes back exactly the bytes `Transaction::read` read. -/
+def checkWrite (bytes : List Byte) : Bool :=
+  match Read.read ⟨[], []⟩ bytes with
+  | some (.tx tx, []) =>
+    match tx.write ([] : VecU8) with
+    | .ok w => w == bytes
+    | .error _ => false
+  | _ => false
+
+#guard zip244Vectors.all fun v => checkWrite (hex v.tx)
+
+/- The crates' own: `zcash_primitives` 0.31.0's `tx_bytes(&tx) == encoded` (`src/transaction/
+   tests.rs`, lines 86 and 153), and `zakura-primitives` 4.0.0's version 6 transaction. -/
+#guard checkWrite (hex "050000800a27a726d90a197700000000010000000000000000")
+#guard checkWrite v6Encoded
+#guard checkWrite
+  (hex ("0600008098b684d85b16a5370100000002000000010000000000000000000000" ++
+    "0000000000000000000000000000000000000000000000000000ffffffff0150c3000000000000015100000000"))
+
+/-- A ZIP 244 vector's transaction with an Orchard bundle, as version 6 under `branchId`. -/
+def asV6 (branchId : BitVec 32) : Option TransactionData :=
+  (zip244Vectors.findSome? fun v => match Read.read ⟨[], []⟩ (hex v.tx) with
+    | some (.tx tx, _) => if tx.orchardBundle.isSome then some tx else none
+    | _ => none).map fun tx => { tx with version := .v6, consensusBranchId := branchId }
+
+/- `write_v6_bundle` writes an Orchard bundle under NU7 (`0x77190AD9`), and rejects it under NU5
+   (`0xC2D6D0B4`), whose bundle version is `orchard_insecure_v1`. -/
+#guard ((asV6 0x77190AD9).map fun tx => (tx.write ([] : VecU8)).toBool) == some true
+#guard ((asV6 0xC2D6D0B4).map fun tx => (tx.write ([] : VecU8)).toBool) == some false
+
+/-! ## Values -/
 
 /-- A version 5 transaction with one Sapling Output, zero bytes but for its header and its value
     balance `vb`. -/

@@ -25,7 +25,8 @@
 * `Verifier/Read.lean`: librustzcash's reader for version 5 and 6 transactions.
 * `Proofs/Read.lean`: every transaction it reads meets the digest theorems' hypotheses.
 * `Verifier/Zebra.lean`: Zebra's signature digests, of the transaction rebuilt.
-* `Proofs/Zebra.lean`: for every transaction the reader returns, they are the specification's.
+* `Proofs/Zebra.lean`: for a transaction the reader returns, under its own branch ID, and coins
+  that fit it, they are the specification's.
 -/
 module
 

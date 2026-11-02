@@ -6,7 +6,8 @@ The transcribed `zcash_primitives` on ZIP 244's test vectors, as its own test do
 `SIGHASH_SINGLE` digest, the crate still computes one, as its test skips it. Likewise the crates'
 own transactions' digests, and `v4_signature_hash` on ZIP 143's and ZIP 243's vectors
 (`zip_0143`, `zip_0243`, lines 1084–1148). Last, Zebra's `sighash` on what the reader reads from
-ZIP 244's vectors and from the NU7 transactions of `zebra-chain`'s own test.
+ZIP 244's vectors and from the NU7 transactions of `zebra-chain`'s own test, and its
+`sighash_v4_raw` on ZIP 143's and ZIP 243's vectors.
 -/
 import ZcashSighash.Verifier.Zakura
 import ZcashSighash.Verifier.Read
@@ -310,7 +311,9 @@ def readsVersion (bytes : List Byte) (p : TxVersion → Bool) : Bool :=
 
 /-- A coin as Zebra holds it, if its value is in range. -/
 def zebraOutput (value : ℕ) (script : List Byte) : Option Zebra.Output :=
-  if h : (BitVec.ofNat 64 value).toNat ≤ Zebra.MAX_MONEY then some ⟨_, ⟨script⟩, h⟩ else none
+  if h : value ≤ Zebra.MAX_MONEY then
+    some ⟨BitVec.ofNat 64 value, ⟨script⟩, (BitVec.toNat_ofNat _ _ ▸ Nat.mod_le _ _).trans h⟩
+  else none
 
 /-- Whether Zebra's digests of the transaction `Transaction::read` reads from the vector, under
     the network upgrade of its own consensus branch ID and with the vector's coins, none for a

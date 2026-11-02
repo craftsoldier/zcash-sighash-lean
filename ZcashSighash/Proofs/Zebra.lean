@@ -209,15 +209,17 @@ theorem signatureDigest_shielded_congr {t t' : Spec.Transparent} (h : t = t') (v
         (.shielded : Spec.SignableInput t') := by
   subst h; rfl
 
-/-- **Zebra's shielded signature digest (`HashType::ALL`, no input) of a version 5 or 6
-    transaction `Transaction::read` returned, under the network upgrade of its own consensus
-    branch ID, is the specification's**, for the transaction spending `allPreviousOutputs`, coins
-    that fit it: none for a coinbase. -/
+/-- **Zebra's shielded signature digest (no input, which Zebra computes with `HashType::ALL`) of
+    a version 5 or 6 transaction `Transaction::read` returned, under the network upgrade of its
+    own consensus branch ID, is the specification's**, for the transaction spending
+    `allPreviousOutputs`, coins that fit it: none for a coinbase. A shielded input is hashed with
+    `SIGHASH_ALL` whatever the hash type. -/
 theorem sighash_shielded_eq {ctx : Transparent.AuthorizingContext} {s s' : List Spec.Byte}
     {tx : TransactionData} (h : Read.read ctx s = some (.tx tx, s'))
-    (allPreviousOutputs : List Output) (hf : CoinsFit tx allPreviousOutputs) :
+    (allPreviousOutputs : List Output) (hf : CoinsFit tx allPreviousOutputs)
+    (ht : Spec.HashType) :
     ∃ data, PrecomputedTxData.new tx (some tx.consensusBranchId) allPreviousOutputs =
-      some (.ok data) ∧ sighash data 0x01 none =
+      some (.ok data) ∧ sighash data (ht.toByte.setWidth 32) none =
         some ((rebuilt tx tx.consensusBranchId allPreviousOutputs).toSpec.signatureDigest
           blake2b256 .shielded).toList := by
   obtain ⟨d, hnew, hfit, hnone⟩ := precomputedTxData_new_eq h allPreviousOutputs hf
@@ -234,8 +236,7 @@ theorem sighash_shielded_eq {ctx : Transparent.AuthorizingContext} {s s' : List 
         signatureDigest_shielded_congr (t' := rt.toSpec.transparent)
           (by simp [TransactionData.toSpec, hb])]
       rfl
-  have hconv : toSighashType? 0x01 = some ⟨Transparent.SIGHASH_ALL⟩ := rfl
-  simp only [sighash, hconv, sighashInner, Precomputed.signatureHash, hsig]
+  simp only [sighash, toSighashType?_toByte, sighashInner, Precomputed.signatureHash, hsig]
   rfl
 
 /-- **Zebra's signature digest of transparent input `i` of a version 5 or 6 transaction

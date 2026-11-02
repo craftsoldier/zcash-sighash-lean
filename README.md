@@ -25,8 +25,8 @@ them gives the specification's digests with BLAKE2b-256. Each theorem states its
   upgrade with another branch ID is an error; under one with its own, the rebuild changes
   nothing else, and given a coin per input (none for a coinbase, as Zebra looks up), each script
   at most `MAX_COMPACT_SIZE` bytes, `sighash` gives the specification's digests of the
-  transaction spending those coins. Its version 4 digests, under the network upgrade's branch
-  ID, are tested on ZIP 143's and ZIP 243's vectors, not proven.
+  transaction spending those coins. Its version 3 and 4 digests, under the network upgrade's
+  branch ID, are tested on ZIP 143's and ZIP 243's vectors, not proven.
 - `zakura-primitives` 4.0.0 (Zakura's fork of it): the same digests under the same hypotheses,
   for scripts of any length. Zakura's node computes version 4 to 6 signature digests, and version
   5 and 6 identifiers and auth digests, with its own code in `zakura-chain`.

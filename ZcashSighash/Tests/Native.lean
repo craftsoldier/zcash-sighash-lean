@@ -1,5 +1,5 @@
 /-
-Zakura's own ZIP 244 / ZIP 229 digests on ZIP 244's test vectors and the two version 6
+Zakura's own ZIP 244 / ZIP 229 digests on ZIP 244's test vectors and the crates' own
 transactions: each transaction's identifier and auth digest, its shielded signature digest, and
 its transparent input's signature digest under each hash type the vector gives one for. Its own
 ZIP 243 digest on ZIP 243's vectors. Then the signature check's failure cases: every byte a
@@ -88,12 +88,12 @@ def checkNative (v : Zip244Vector) : Bool :=
 
 #guard zip244Vectors.map checkNative = List.replicate 10 true
 
-/-- Whether Zakura's native code gives the version 6 vector's digests. -/
-def checkNativeV6 (v : V6Vector) : Bool :=
+/-- Whether Zakura's native code gives the crate vector's digests. -/
+def checkNativeCrate (v : CrateVector) : Bool :=
   let p := toParts v.tx
   match Zip244SighashCache.new p (previousOutputs v.tx), hashHeaderOf p with
   | some cache, some header =>
-    header == hex v.headerDigest &&
+    (v.headerDigest.all fun d => header == hex d) &&
     Native.txid p == some (hex v.txid) &&
     (v.authDigest.all fun d => Native.authDigest (coinbaseScriptOf v.tx) p == some (hex d)) &&
     v.sighashShielded.all fun d => cache.sighash .all none == some (hex d)
@@ -102,7 +102,7 @@ where
   /-- The header digest. -/
   hashHeaderOf (p : Parts) : Option Blake2bHash := Native.hashHeader p
 
-#guard v6Vectors.map checkNativeV6 = [true, true]
+#guard crateVectors.map checkNativeCrate = List.replicate 3 true
 
 /-! ## A coinbase input's `scriptSig` -/
 

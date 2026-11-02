@@ -10,6 +10,8 @@
 * `Proofs/VerifierV4.lean`: the same for versions 3 and 4.
 * `Proofs/Zakura.lean`: the same for Zakura's fork.
 * `Proofs/Seams.lean`: what it computes outside those theorems' hypotheses.
+* `Verifier/Script.lean`: Zakura's sighash callback and `zcash_script`'s signature check.
+* `Proofs/Script.lean`: the callback gives each signature check the specification's digest.
 -/
 module
 
@@ -19,6 +21,7 @@ public import ZcashSighash.Proofs.Verifier
 public import ZcashSighash.Proofs.Seams
 public import ZcashSighash.Proofs.VerifierV4
 public import ZcashSighash.Proofs.Zakura
+public import ZcashSighash.Proofs.Script
 public import ZcashSighash.Verifier.Blake2b
 public import ZcashSighash.Verifier.Encoding
 public import ZcashSighash.Verifier.Transparent
@@ -27,3 +30,4 @@ public import ZcashSighash.Verifier.TxId
 public import ZcashSighash.Verifier.Sighash
 public import ZcashSighash.Verifier.SighashV4
 public import ZcashSighash.Verifier.Zakura
+public import ZcashSighash.Verifier.Script

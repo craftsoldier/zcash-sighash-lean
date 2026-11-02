@@ -22,9 +22,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # The crates `ZcashSighash/Verifier/` transcribes, librustzcash's and Zakura's, fetched from
-      # crates.io: each `.crate` file's SHA-256 must be the pinned one and the crates.io index's,
-      # and each source file the Lean cites must be in it. One pin per line:
+      # The crates `ZcashSighash/Verifier/` transcribes, fetched from crates.io: each `.crate`
+      # file's SHA-256 must be the pinned one and the crates.io index's, and each source file the
+      # Lean cites must be in it. One pin per line:
       #   <name> <version> <sha256> <cited files>
       - name: Check the pinned crates
         env:
@@ -42,6 +42,9 @@ jobs:
             zakura-protocol 4.0.0 b28415ef2e0210e62bc4f9277a1d2878aecdcf13d71dc92aac5582a108cd1ff5 src/encoding.rs
             zakura-orchard 4.0.0 ded68d0841754e5cd9c6a976e3c1bf64275fbfa4cfca0e5b4ee5ee44d5bb7e74 src/bundle/commitments.rs src/action.rs src/note.rs
             zakura-sapling-crypto 4.0.0 c723f61c7b67b057185edf592111ffab15909b7f2649b6b5690ee6ac47d70d5d src/bundle.rs
+            zakura-script 5.0.0 c318b1de5214842182ed9658944969404ff3a60e254b24c1c82f78e2d9fc7723 src/lib.rs
+            zakura-chain 10.0.0 7e6b3e3ee6112d3dc761ae5c36effa32487802bc019f419674a590c96f7b7322 src/transaction/sighash.rs
+            zcash_script 0.6.0 10106859d08a2a4119af8a0fa8db72afe35647768b562f94b7a2124adad41275 src/signature.rs src/interpreter.rs
           # `unsafe` in a pinned file, outside the functions the Lean transcribes. One per line:
           #   <name> <version> <file> <line>
           # `nonempty`'s `len_nonzero` builds a `NonZeroUsize` from the length plus one, never 0.

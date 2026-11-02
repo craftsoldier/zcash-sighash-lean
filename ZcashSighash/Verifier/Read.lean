@@ -16,8 +16,9 @@ Checks that only reject more inputs are left out: that a byte string is a valid 
 field element (`read_value_commitment`, `read_rk`, `read_base`, `read_anchor`, ...), a valid
 consensus branch (`BranchId::try_from`), Orchard flags valid for the bundle version
 (`read_flags`), an Orchard bundle version for the branch, and a canonical Orchard proof length
-(`try_from_parts`). So every transaction `zcash_primitives` returns, this reader returns too,
-and `Proofs/Read.lean` is about what a successful read returns.
+(`try_from_parts`). So every transaction `zcash_primitives` returns, this reader returns too.
+`Proofs/Read.lean` is about what a successful read of a version 5 or 6 transaction returns, and
+`Proofs/ReadV4.lean` about the identifier of a version 1 to 4 one.
 -/
 module
 

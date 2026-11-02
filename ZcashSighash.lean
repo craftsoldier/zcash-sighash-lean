@@ -26,8 +26,9 @@
 * `Proofs/Read.lean`: every version 5 and 6 transaction it reads meets the digest theorems'
   hypotheses, and its values are in range.
 * `Verifier/Write.lean`: librustzcash's writer, for every version.
-* `Proofs/Write.lean`: it writes back the bytes the reader read of a version 5 and 6 transaction,
-  and the reader reads them back.
+* `Proofs/Write.lean`: it writes back the bytes the reader read of a version 5 or 6 transaction,
+  and the reader reads them back; what the reader reads, of every version, it reads the same
+  before anything.
 * `Verifier/Sha256.lean`: SHA-256 (FIPS 180-4), which a version 1 to 4 identifier is made of.
 * `Proofs/ReadV4.lean`: that identifier is the SHA-256d of the bytes the reader read.
 * `Verifier/Zebra.lean`: Zebra's signature digests, of the transaction rebuilt.

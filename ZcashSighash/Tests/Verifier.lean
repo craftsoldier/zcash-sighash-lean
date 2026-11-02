@@ -7,11 +7,11 @@ The transcribed `zcash_primitives` on ZIP 244's test vectors, as its own test do
 own transactions' digests, and `v4_signature_hash` on ZIP 143's and ZIP 243's vectors
 (`zip_0143`, `zip_0243`, lines 1084–1148). Then `Transaction::read`: on ZIP 244's vectors and the
 crates' own, truncated, and on version headers, and on the crate's version 4 transaction, ZIP
-143's and ZIP 243's, and versions 1 and 2, its identifier and digests, and the value balance
-`read_v4` drops; `Transaction::write` on what it read; and the reader on values at the edges of
-their range. Last, Zebra's `sighash` on what the reader reads from ZIP 244's vectors and from the
-NU7 transactions of `zebra-chain`'s own test, and its `sighash_v4_raw` on ZIP 143's and ZIP 243's
-vectors.
+143's and ZIP 243's, and versions 1 and 2, its identifier, digests and truncations, and the value
+balance `read_v4` drops; `Transaction::write` on what it read; and the reader on values at the
+edges of their range. Last, Zebra's `sighash` on what the reader reads from ZIP 244's vectors and
+from the NU7 transactions of `zebra-chain`'s own test, and its `sighash_v4_raw` on ZIP 143's and
+ZIP 243's vectors.
 -/
 import ZcashSighash.Verifier.Zakura
 import ZcashSighash.Verifier.Read
@@ -410,11 +410,19 @@ def checkV4RoundTrip (bytes : List Byte) : Bool :=
     | .error _ => false
   | _ => false
 
-/- A version 1 transaction, which has no JoinSplits, and a version 2 one with one JoinSplit and
-   its BCTV14 proof, zero bytes but for the header and the counts. -/
+/- A version 1 transaction, which has no JoinSplits, a version 2 one with one JoinSplit and its
+   BCTV14 proof, and a version 5 one without the overwintered bit, which `read` hands to
+   `read_v4` as version 2's kind, zero bytes but for the header and the counts. Their identifier
+   is checked against this repository's SHA-256 only; the crate's transaction above checks it
+   against the crate's. -/
 #guard checkV4RoundTrip (hex "01000000" ++ hex "0000" ++ hex "00000000")
 #guard checkV4RoundTrip (hex "02000000" ++ hex "0000" ++ hex "00000000" ++ hex "01" ++
   List.replicate 1802 0 ++ List.replicate 96 0)
+#guard checkV4RoundTrip (hex "05000000" ++ hex "0000" ++ hex "00000000" ++ hex "00")
+
+/- `Transaction::read` rejects every truncation of the crate's version 4 transaction. -/
+#guard (List.range txReadWrite.length).all fun n =>
+  (Read.read ⟨[], []⟩ 0xE9FF75A6 (txReadWrite.take n)).isNone
 
 /-- A version 4 transaction with no Sapling Spend or Output and a value balance of 1. -/
 def droppedValueBalance : List Byte :=
@@ -426,7 +434,8 @@ def droppedValueBalance : List Byte :=
 #guard match Read.read ⟨[], []⟩ 0 droppedValueBalance with
   | some (.v4 tx _, []) =>
     match tx.write ([] : VecU8) with
-    | .ok w => w != droppedValueBalance && w.length == droppedValueBalance.length
+    | .ok w => w == hex "0400008085202f89" ++ hex "0000" ++ hex "0000000000000000" ++
+        toLeBytes 8 (0 : BitVec 64) ++ hex "000000"
     | .error _ => false
   | _ => false
 

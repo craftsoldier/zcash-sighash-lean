@@ -4,6 +4,7 @@
 * `Spec.lean`: the transaction digests and signature check as ZIPs 143, 243, 244 and 229 define
   them.
 * `Proofs/Spec.lean`: what the specification is meant to do, checked against what it says.
+* `Proofs/Commitments.lean`: what the transaction identifier commits to, and what it ignores.
 * `Verifier/Blake2b.lean`: BLAKE2b (RFC 7693), with the `blake2b_simd` interface.
 * `Verifier/`: librustzcash's digests, transcribed statement by statement.
 * `Proofs/Verifier.lean`: the transcription computes the specification's digests.
@@ -17,6 +18,7 @@ module
 
 public import ZcashSighash.Spec
 public import ZcashSighash.Proofs.Spec
+public import ZcashSighash.Proofs.Commitments
 public import ZcashSighash.Proofs.Verifier
 public import ZcashSighash.Proofs.Seams
 public import ZcashSighash.Proofs.VerifierV4

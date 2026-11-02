@@ -1,12 +1,12 @@
 /-
-`zcash_primitives` 0.31.0's `Transaction::read` for version 5 and 6 transactions
-(`src/transaction/mod.rs`, `src/transaction/components/{sapling,orchard}.rs`), and the readers it
-calls in `zcash_transparent` 0.11.0 and `zcash_encoding` 0.5.0, under the default features (no
-`zip-233`). A read error is `none`. An earlier version goes to `read_v4`, which is not
-transcribed: `read` stops there (`.readV4`), where the crate reads on and may still fail.
+`zcash_primitives` 0.31.0's `Transaction::read` (`src/transaction/mod.rs`,
+`src/transaction/components/{sapling,orchard,sprout}.rs`), and the readers it calls in
+`zcash_transparent` 0.11.0 and `zcash_encoding` 0.5.0, under the default features (no
+`zip-233`). A read error is `none`. For a version before 5, the identifier is the SHA-256d of the
+bytes read, which `read_v4` computes through a `HashReader`.
 
 Zebra 7.0.0 parses every transaction, in blocks and from peers, with `Transaction::read`, which
-this module transcribes for versions 5 and 6: `zebra-chain` 15.0.0's `Transaction` wraps
+this module transcribes: `zebra-chain` 15.0.0's `Transaction` wraps
 `zcash_primitives`' (`src/transaction.rs`, line 59), and its `deserialize_and_check` (lines
 902–1023), which both its deserializers go through, the one blocks use included
 (`src/block/serialize.rs`, line 165), calls `Transaction::read` and then rejects more. Zakura
@@ -16,12 +16,14 @@ Checks that only reject more inputs are left out: that a byte string is a valid 
 field element (`read_value_commitment`, `read_rk`, `read_base`, `read_anchor`, ...), a valid
 consensus branch (`BranchId::try_from`), Orchard flags valid for the bundle version
 (`read_flags`), an Orchard bundle version for the branch, and a canonical Orchard proof length
-(`try_from_parts`). So every version 5 or 6 transaction `zcash_primitives` returns, this reader
-returns too (`.tx`), and `Proofs/Read.lean` is about what a successful read returns.
+(`try_from_parts`). So every transaction `zcash_primitives` returns, this reader returns too,
+and `Proofs/Read.lean` is about what a successful read returns.
 -/
 module
 
 public import ZcashSighash.Verifier.Parse
+public import ZcashSighash.Verifier.SighashV4
+public import ZcashSighash.Verifier.Sha256
 
 @[expose] public section
 
@@ -253,19 +255,113 @@ def readTxVersion : Parser TxVersion := do
   else if 1 ≤ version then pure (.sprout (BitVec.ofNat 32 version))
   else fail
 
-/-- What `Transaction::read` does once it has read the version: read a version 5 or 6
-    transaction, or hand an earlier one to `read_v4` (lines 989–1064), which is not transcribed. -/
+/-! ## Versions 1 to 4 -/
+
+/-- `read_spend_v4` (`src/transaction/components/sapling.rs`, lines 223–245). -/
+def readSpendV4 : Parser Sapling.SpendDescription := do
+  let cv ← readArr 32
+  let anchor ← readArr 32
+  let nullifier ← readArr 32
+  let rk ← readArr 32
+  let zkproof ← readArr 192
+  let spendAuthSig ← readArr 64
+  pure ⟨cv, anchor, nullifier, rk, zkproof, spendAuthSig⟩
+
+/-- `read_output_v4` (lines 280–311). -/
+def readOutputV4 : Parser Sapling.OutputDescription := do
+  let cv ← readArr 32
+  let cmu ← readArr 32
+  let ephemeralKey ← readArr 32
+  let encCiphertext ← readArr 580
+  let outCiphertext ← readArr 80
+  let zkproof ← readArr 192
+  pure ⟨cv, cmu, ephemeralKey, encCiphertext, outCiphertext, zkproof⟩
+
+/-- `read_v4_components` (lines 384–404): the value balance, the Spends and the Outputs. -/
+def readV4Components (txHasSapling : Bool) :
+    Parser (BitVec 64 × List Sapling.SpendDescription × List Sapling.OutputDescription) :=
+  if txHasSapling then do
+    let vb ← readAmount
+    let ss ← readVector readSpendV4
+    let so ← readVector readOutputV4
+    pure (vb, ss, so)
+  else pure (0, [], [])
+
+/-- `ZatBalance::from_u64_le_bytes` (`zcash_protocol` 0.11.0, `src/value.rs`, lines 111–114),
+    through `from_u64` (lines 84–90): an error above `MAX_MONEY`. -/
+def readU64Amount : Parser (BitVec 64) := do
+  let amount ← readLe 8
+  if amount ≤ Native.MAX_MONEY then pure (BitVec.ofNat 64 amount) else fail
+
+/-- `JsDescription::read` (`src/transaction/components/sprout.rs`, lines 89–166): a Groth16
+    proof (`GROTH_PROOF_SIZE`, 192 bytes) if `use_groth`, otherwise a BCTV14 one
+    (`PHGR_PROOF_SIZE`, 296 bytes, line 10). -/
+def readJsDescription (useGroth : Bool) : Parser Sprout.JsDescription := do
+  let vpubOld ← readU64Amount
+  let vpubNew ← readU64Amount
+  let anchor ← readArr 32
+  let nullifier₁ ← readArr 32
+  let nullifier₂ ← readArr 32
+  let commitment₁ ← readArr 32
+  let commitment₂ ← readArr 32
+  let ephemeralKey ← readArr 32
+  let randomSeed ← readArr 32
+  let mac₁ ← readArr 32
+  let mac₂ ← readArr 32
+  let proof ← if useGroth then Sprout.SproutProof.groth <$> readArr 192
+    else Sprout.SproutProof.phgr <$> readArr 296
+  let ciphertext₁ ← readArr 601
+  let ciphertext₂ ← readArr 601
+  pure ⟨vpubOld, vpubNew, anchor, (nullifier₁, nullifier₂), (commitment₁, commitment₂),
+    ephemeralKey, randomSeed, (mac₁, mac₂), proof, (ciphertext₁, ciphertext₂)⟩
+
+/-- `read_v4` (`src/transaction/mod.rs`, lines 989–1064), with `consensus_branch_id` as the
+    transaction's branch ID. The identifier it takes from its `HashReader` is `read`'s. -/
+def readV4 (ctx : Transparent.AuthorizingContext) (version : TxVersion)
+    (consensusBranchId : BitVec 32) : Parser TransactionData := do
+  let transparentBundle ← readTransparent ctx
+  let lockTime ← readLe 4
+  let expiryHeight ← if version.hasOverwinter then readLe 4 else pure 0
+  let (valueBalance, shieldedSpends, shieldedOutputs) ← readV4Components version.hasSapling
+  let sproutBundle ← if version.hasSprout then do
+      let joinsplits ← readVector (readJsDescription version.hasSapling)
+      if !joinsplits.isEmpty then do
+        let joinsplitPubkey ← readArr 32
+        let joinsplitSig ← readArr 64
+        pure (some ⟨joinsplits, joinsplitPubkey, joinsplitSig⟩)
+      else pure none
+    else pure none
+  let bindingSig ← if version.hasSapling && !(shieldedSpends.isEmpty && shieldedOutputs.isEmpty)
+    then some <$> readArr 64 else pure none
+  pure ⟨version, consensusBranchId, BitVec.ofNat 32 lockTime, BitVec.ofNat 32 expiryHeight,
+    transparentBundle, sproutBundle,
+    bindingSig.bind (saplingFromParts shieldedSpends shieldedOutputs valueBalance), none, none⟩
+
+/-! ## `Transaction::read` -/
+
+/-- `HashReader` (`zcash_transparent` 0.11.0, `src/util/sha256d.rs`, lines 4–40): `p`, and the
+    bytes it read, which the `HashReader` hashes as they are read. -/
+def hashReader {α : Type} (p : Parser α) : Parser (α × List Byte) := fun s =>
+  (p s).map fun (a, s') => ((a, s.take (s.length - s'.length)), s')
+
+/-- A transaction `Transaction::read` returns: one of version 5 or 6, whose identifier
+    `from_data_v5` and `from_data_v6` compute from its data, or an earlier one with the
+    identifier `read_v4` computes from the bytes it read. -/
 inductive ReadOutcome where
   | tx (data : TransactionData)
-  | readV4 (version : TxVersion)
+  | v4 (data : TransactionData) (txid : List Byte)
 
-/-- `Transaction::read` (lines 973–986), up to `read_v4`. The `HashReader` it reads through
-    computes only `read_v4`'s identifier, and its `consensus_branch_id` goes only to `read_v4`, so
-    both are left out. -/
-def read (ctx : Transparent.AuthorizingContext) : Parser ReadOutcome := do
-  let version ← readTxVersion
+/-- `Transaction::read` (lines 973–986), with `consensus_branch_id`, which only `read_v4` uses.
+    Its `HashReader` hashes every byte it reads: the version's, then `read_v4`'s, whose
+    `into_hash` (lines 1037–1039) gives the SHA-256d of them all. Versions 5 and 6 read on from the
+    base reader. -/
+def read (ctx : Transparent.AuthorizingContext) (consensusBranchId : BitVec 32) :
+    Parser ReadOutcome := do
+  let (version, header) ← hashReader readTxVersion
   match version with
-  | .sprout _ | .v3 | .v4 => pure (.readV4 version)
+  | .sprout _ | .v3 | .v4 => do
+    let (data, body) ← hashReader (readV4 ctx version consensusBranchId)
+    pure (.v4 data ((Sha256.sha256d ((header ++ body).map (·.toNat))).map (BitVec.ofNat 8)))
   | .v5 => ReadOutcome.tx <$> readV5 ctx version
   | .v6 => ReadOutcome.tx <$> readV6 ctx version
 

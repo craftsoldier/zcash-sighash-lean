@@ -27,6 +27,8 @@
   values are in range.
 * `Verifier/Write.lean`: librustzcash's writer, for every version.
 * `Proofs/Write.lean`: it writes back the bytes the reader read, and the reader reads them back.
+* `Verifier/Sha256.lean`: SHA-256 (FIPS 180-4), which a version 1 to 4 identifier is made of.
+* `Proofs/ReadV4.lean`: that identifier is the SHA-256d of the bytes the reader read.
 * `Verifier/Zebra.lean`: Zebra's signature digests, of the transaction rebuilt.
 * `Proofs/Zebra.lean`: for a transaction the reader returns, under its own branch ID, and coins
   that fit it, they are the specification's.
@@ -48,6 +50,7 @@ public import ZcashSighash.Proofs.Parse
 public import ZcashSighash.Proofs.Read
 public import ZcashSighash.Proofs.Zebra
 public import ZcashSighash.Proofs.Write
+public import ZcashSighash.Proofs.ReadV4
 public import ZcashSighash.Verifier.Blake2b
 public import ZcashSighash.Verifier.Encoding
 public import ZcashSighash.Verifier.Transparent
@@ -65,3 +68,4 @@ public import ZcashSighash.Verifier.Parse
 public import ZcashSighash.Verifier.Read
 public import ZcashSighash.Verifier.Zebra
 public import ZcashSighash.Verifier.Write
+public import ZcashSighash.Verifier.Sha256

@@ -235,16 +235,32 @@ theorem readTxVersion_write {s s' : List Byte} {v : TxVersion}
         Nat.mod_eq_of_lt (show header < 2147483648 by omega)]
     · simp at h
 
-/-- `Transaction::read` returns a transaction only by reading a version 5 header and then
-    `read_v5`, or a version 6 header and then `read_v6`. -/
-theorem read_tx {ctx : Transparent.AuthorizingContext} {s s' : List Byte} {tx : TransactionData}
-    (h : read ctx s = some (.tx tx, s')) : ∃ s₁,
+/-- What a `HashReader` read returns: what the read returns, and the bytes it read. -/
+theorem hashReader_eq_some {α : Type} {p : Parser α} {s s' : List Byte} {a : α}
+    {w : List Byte} (h : hashReader p s = some ((a, w), s')) :
+    p s = some (a, s') ∧ w = s.take (s.length - s'.length) := by
+  unfold hashReader at h
+  cases hp : p s with
+  | none => simp [hp] at h
+  | some r =>
+    obtain ⟨a', s₁⟩ := r
+    simp only [hp, Option.map_some, Option.some.injEq, Prod.mk.injEq] at h
+    obtain ⟨⟨rfl, rfl⟩, rfl⟩ := h
+    exact ⟨rfl, rfl⟩
+
+/-- `Transaction::read` returns a version 5 or 6 transaction only by reading a version 5 header
+    and then `read_v5`, or a version 6 header and then `read_v6`. -/
+theorem read_tx {ctx : Transparent.AuthorizingContext} {bid : BitVec 32} {s s' : List Byte}
+    {tx : TransactionData} (h : read ctx bid s = some (.tx tx, s')) : ∃ s₁,
       (readTxVersion s = some (.v5, s₁) ∧ readV5 ctx .v5 s₁ = some (tx, s')) ∨
       (readTxVersion s = some (.v6, s₁) ∧ readV6 ctx .v6 s₁ = some (tx, s')) := by
-  obtain ⟨v, s₁, hv, h⟩ := Parser.bind_eq_some.mp h
+  obtain ⟨⟨v, hdr⟩, s₁, hv, h⟩ := Parser.bind_eq_some.mp h
+  have hv := (hashReader_eq_some hv).1
   refine ⟨s₁, ?_⟩
   cases v with
-  | sprout _ | v3 | v4 => simp [pure_apply] at h
+  | sprout _ | v3 | v4 =>
+    obtain ⟨_, _, -, h⟩ := Parser.bind_eq_some.mp h
+    simp [pure_apply] at h
   | v5 =>
     cases ht : readV5 ctx .v5 s₁ with
     | none => simp [Functor.map, StateT.map, ht] at h
@@ -300,16 +316,17 @@ theorem readV6_version {ctx : Transparent.AuthorizingContext} {v : TxVersion} {s
 
 /-- **A transaction `Transaction::read` returns begins with `TxVersion::write`'s encoding of its
     version**: the version whose digest rules apply is the one its bytes encode. -/
-theorem read_write {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
-    {tx : TransactionData} (h : read ctx s = some (.tx tx, s')) :
+theorem read_write {ctx : Transparent.AuthorizingContext} {bid : BitVec 32} {s s' : List Byte}
+    {tx : TransactionData} (h : read ctx bid s = some (.tx tx, s')) :
     ∃ s₁, s = tx.version.write ++ s₁ := by
   obtain ⟨s₁, ⟨hv, ht⟩ | ⟨hv, ht⟩⟩ := read_tx h
   · exact ⟨s₁, readV5_version ht ▸ readTxVersion_write hv⟩
   · exact ⟨s₁, readV6_version ht ▸ readTxVersion_write hv⟩
 
 /-- **Every version 5 and 6 transaction `zcash_primitives` reads is `WellFormed`.** -/
-theorem read_wellFormed {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
-    {tx : TransactionData} (h : read ctx s = some (.tx tx, s')) : WellFormed tx := by
+theorem read_wellFormed {ctx : Transparent.AuthorizingContext} {bid : BitVec 32}
+    {s s' : List Byte} {tx : TransactionData} (h : read ctx bid s = some (.tx tx, s')) :
+    WellFormed tx := by
   obtain ⟨s₁, ⟨-, ht⟩ | ⟨-, ht⟩⟩ := read_tx h
   · exact readV5_wellFormed ht
   · exact readV6_wellFormed ht
@@ -317,8 +334,8 @@ theorem read_wellFormed {ctx : Transparent.AuthorizingContext} {s s' : List Byte
 /-- **The identifier of every version 5 or 6 transaction `zcash_primitives` reads is the
     specification's**, so computing it as `Transaction::read` does (`from_data_v5`,
     `from_data_v6`) never panics: what GHSA-qp6f did to Zebra cannot happen here. -/
-theorem read_txid_eq {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
-    {tx : TransactionData} (h : read ctx s = some (.tx tx, s')) :
+theorem read_txid_eq {ctx : Transparent.AuthorizingContext} {bid : BitVec 32} {s s' : List Byte}
+    {tx : TransactionData} (h : read ctx bid s = some (.tx tx, s')) :
     tx.txIdDigests.bind (toTxid tx.version tx.consensusBranchId) =
       some (some (tx.toSpec.txid blake2b256).toList) :=
   txid_eq tx (read_wellFormed h)
@@ -434,8 +451,9 @@ theorem readTransparent_range {ctx : Transparent.AuthorizingContext} {s s' : Lis
 
 /-- **Every value a version 5 or 6 transaction `zcash_primitives` reads encodes is in
     range.** -/
-theorem read_valuesInRange {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
-    {tx : TransactionData} (h : read ctx s = some (.tx tx, s')) : ValuesInRange tx := by
+theorem read_valuesInRange {ctx : Transparent.AuthorizingContext} {bid : BitVec 32}
+    {s s' : List Byte} {tx : TransactionData} (h : read ctx bid s = some (.tx tx, s')) :
+    ValuesInRange tx := by
   obtain ⟨s₁, ⟨-, ht⟩ | ⟨-, ht⟩⟩ := read_tx h
   · obtain ⟨_, s₂, -, h⟩ := Parser.bind_eq_some.mp ht
     obtain ⟨t, s₃, htr, h⟩ := Parser.bind_eq_some.mp h

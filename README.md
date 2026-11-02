@@ -32,6 +32,11 @@ or Ironwood bundle in the other's pool, a script longer than `MAX_COMPACT_SIZE`,
 authorizing context without one entry per input. A signed transparent input must carry a hash
 type `SighashType::parse` accepts and its coin's value and `scriptPubKey`.
 
+`ZcashSighash/Proofs/VerifierV4.lean` proves the same of `v4_signature_hash` for versions 3 and
+4 (`v4SignatureHash_transparent`, `v4SignatureHash_shielded`): ZIP 143's and ZIP 243's digest,
+for any hash-type byte, with only the scripts' length bound as a hypothesis. The Rust skips empty
+bundles itself, and hashes each Sapling spend's own anchor, as the version 4 encoding has them.
+
 `ZcashSighash/Proofs/Seams.lean` states what the Rust does outside those hypotheses: an empty
 transparent bundle is hashed as three empty digests; an undefined hash type kept by
 `SighashType::from_raw` is hashed as `SIGHASH_ALL` under its own byte; a script longer than

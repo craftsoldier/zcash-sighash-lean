@@ -6,18 +6,13 @@ corresponding output, and the signature check finds no digest. Likewise two vers
 transactions from the crates' tests, with the digests the tests give.
 -/
 import ZcashSighash.Spec
-import ZcashSighash.Verifier.Blake2b
+import ZcashSighash.Verifier.Encoding
 import ZcashSighash.Tests.Zip244
 
 namespace ZcashSighash.Tests
 
 open ZcashSighash.Spec
-
-/-- BLAKE2b-256 with a personalization. -/
-def blake2b256 : Hash := fun p x =>
-  ⟨List.ofFn fun i : Fin 32 => BitVec.ofNat 8
-    ((Verifier.Blake2b.blake2b 32 (p.toList.map (·.toNat)) (x.map (·.toNat))).getD i 0),
-    by simp⟩
+open ZcashSighash.Verifier (blake2b256)
 
 /-- The bytes a hex string writes. -/
 def hex (s : String) : List Byte :=

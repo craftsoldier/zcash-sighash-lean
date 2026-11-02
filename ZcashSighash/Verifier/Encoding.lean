@@ -32,6 +32,11 @@ def toLeBytes {w : ℕ} (n : ℕ) (x : BitVec w) : List Byte :=
 /-- `blake2b_simd::Hash`, as `as_bytes` gives it. -/
 abbrev Blake2bHash := List Byte
 
+/-- BLAKE2b-256 with a personalization, as the specification's hash. -/
+def blake2b256 : Spec.Hash := fun p x =>
+  ⟨(Blake2b.blake2b 32 (p.toList.map (·.toNat)) (x.map (·.toNat))).map (BitVec.ofNat 8),
+    by simp [Blake2b.length_blake2b]⟩
+
 /-- `StateWrite` (`src/encoding.rs`, line 66). -/
 structure StateWrite where
   state : Blake2b.State

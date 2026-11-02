@@ -19,6 +19,16 @@ digests in `zcash_primitives` 0.31.0 and the crates it calls (`zcash_transparent
 lines it transcribes, and CI checks each crate against its crates.io checksum. The transcription
 gives the same twelve transactions' digests (`ZcashSighash/Tests/Verifier.lean`).
 
+`ZcashSighash/Proofs/Verifier.lean` proves that, with BLAKE2b-256, the transcription computes
+the specification's digests for every version 5 and 6 transaction: `txid_eq` (`to_txid`),
+`authCommitment_eq` (`auth_commitment`) and `signatureHash_eq`
+(`PrecomputedSighashData::signature_hash`, with `newZip244_eq`). Their hypotheses, `WellFormed`
+and `ContextFits`, name what the Rust types allow and a transaction read from its encoding never
+has: an empty transparent or Sapling bundle, Sapling spends with different anchors, an Orchard
+or Ironwood bundle in the other's pool, a script longer than `MAX_COMPACT_SIZE`, and an
+authorizing context without one entry per input. A signed transparent input must carry a hash
+type `SighashType::parse` accepts and its coin's value and `scriptPubKey`.
+
 ## Verifying the proofs
 
 A successful build is the verification: building re-checks every proof. Install

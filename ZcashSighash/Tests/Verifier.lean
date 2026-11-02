@@ -5,10 +5,10 @@ The transcribed `zcash_primitives` on ZIP 244's test vectors, as its own test do
 `SighashType::parse` accepts, of the vector's transparent input. Where the vector has no
 `SIGHASH_SINGLE` digest, the crate still computes one, as its test skips it. Likewise the crates'
 own transactions' digests, and `v4_signature_hash` on ZIP 143's and ZIP 243's vectors
-(`zip_0143`, `zip_0243`, lines 1084–1148). Then the reader on value balances at the edges of their
-range. Last, Zebra's `sighash` on what the reader reads from ZIP 244's vectors and from the NU7
-transactions of `zebra-chain`'s own test, and its `sighash_v4_raw` on ZIP 143's and ZIP 243's
-vectors.
+(`zip_0143`, `zip_0243`, lines 1084–1148). Then `Transaction::read`: on ZIP 244's vectors and the
+crates' own, truncated, on version headers, and on values at the edges of their range. Last,
+Zebra's `sighash` on what the reader reads from ZIP 244's vectors and from the NU7 transactions of
+`zebra-chain`'s own test, and its `sighash_v4_raw` on ZIP 143's and ZIP 243's vectors.
 -/
 import ZcashSighash.Verifier.Zakura
 import ZcashSighash.Verifier.Read
@@ -331,6 +331,44 @@ def readsValueBalance (vb : BitVec 64) : Bool :=
 #guard (Read.read ⟨[], []⟩ (withValueBalance (.ofInt 64 2100000000000001))).isNone
 #guard (Read.read ⟨[], []⟩ (withValueBalance (.ofInt 64 (-2100000000000001)))).isNone
 #guard (Read.read ⟨[], []⟩ (withValueBalance (.ofNat 64 (2 ^ 63)))).isNone
+
+/-- A version 5 transaction with one Orchard Action, zero bytes but for its header and its value
+    balance `vb`. -/
+def withOrchardValueBalance (vb : BitVec 64) : List Byte :=
+  hex "050000800a27a726d90a19770000000001000000" ++ hex "0000000001" ++ List.replicate 820 0 ++
+    hex "00" ++ toLeBytes 8 vb ++ List.replicate 32 0 ++ hex "00" ++ List.replicate 128 0
+
+/-- Whether `Transaction::read` reads all of `withOrchardValueBalance vb`, into a transaction whose
+    Orchard value balance is `vb`. -/
+def readsOrchardValueBalance (vb : BitVec 64) : Bool :=
+  match Read.read ⟨[], []⟩ (withOrchardValueBalance vb) with
+  | some (.tx tx, []) => (tx.orchardBundle.map (·.valueBalance)) == some vb
+  | _ => false
+
+/- The same of an Orchard value balance (`read_bundle`, `components/orchard.rs`, line 122). -/
+#guard readsOrchardValueBalance (.ofInt 64 2100000000000000)
+#guard readsOrchardValueBalance (.ofInt 64 (-2100000000000000))
+#guard (Read.read ⟨[], []⟩ (withOrchardValueBalance (.ofInt 64 2100000000000001))).isNone
+#guard (Read.read ⟨[], []⟩ (withOrchardValueBalance (.ofInt 64 (-2100000000000001)))).isNone
+
+/-- A version 5 transaction with one transparent output of value `v`, and nothing else. -/
+def withOutputValue (v : BitVec 64) : List Byte :=
+  hex "050000800a27a726d90a19770000000001000000" ++ hex "0001" ++ toLeBytes 8 v ++
+    hex "00000000"
+
+/-- Whether `Transaction::read` reads all of `withOutputValue v`, into a transaction whose output
+    has value `v`. -/
+def readsOutputValue (v : BitVec 64) : Bool :=
+  match Read.read ⟨[], []⟩ (withOutputValue v) with
+  | some (.tx tx, []) => (tx.transparentBundle.map (·.vout.map (·.value))) == some [v]
+  | _ => false
+
+/- An output's value is at most `MAX_MONEY` (`TxOut::read`, `zcash_transparent` 0.11.0,
+   `src/bundle.rs`, lines 385–398), read as unsigned. -/
+#guard readsOutputValue (.ofNat 64 2100000000000000)
+#guard readsOutputValue 0
+#guard (Read.read ⟨[], []⟩ (withOutputValue (.ofNat 64 2100000000000001))).isNone
+#guard (Read.read ⟨[], []⟩ (withOutputValue (.ofInt 64 (-1)))).isNone
 
 /-! ## Zebra -/
 

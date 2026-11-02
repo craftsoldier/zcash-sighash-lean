@@ -355,9 +355,9 @@ def writesV6Action (branchId : BitVec 32) (ironwood : Bool) : Option (Option Boo
    (`0x77190AD9`), whose bundle version is `orchard_v3`, and rejects one read under NU5, NU6 or
    NU6.1 (`orchard_insecure_v1`) or NU6.2 (`orchard_v2`), as Zebra does when it parses them. An
    Ironwood bundle, `ironwood_v3` from NU6.3 on, is written back, and has no version before. A
-   bundle with no version, as under Canopy, the crate's `read_bundle` already rejects (lines
-   114–120), as it would every fixture here for its zero-byte points; these test the
-   transcription. -/
+   bundle with no version, as under Canopy, the crate's `read_bundle` already rejects
+   (`components/orchard.rs`, lines 114–120), as it would every fixture here for its zero-byte
+   points; these test the transcription. -/
 #guard writesV6Action 0x37A5165B false == some (some true)
 #guard writesV6Action 0x77190AD9 false == some (some true)
 #guard writesV6Action 0xC2D6D0B4 false == some none

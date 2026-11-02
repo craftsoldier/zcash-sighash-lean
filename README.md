@@ -19,7 +19,7 @@ them gives the specification's digests with BLAKE2b-256. Each theorem states its
   output at most `MAX_MONEY` and each value balance within `MAX_MONEY` of zero. Its writer
   (`Transaction::write`) writes each back as exactly the bytes it was read from, and reading
   those gives the same transaction; in version 6 with an Orchard or Ironwood bundle, under NU6.3
-  or NU7, as Zebra requires of every version 6 transaction it parses (under an earlier branch ID,
+  or NU7, as Zebra requires of every version 6 transaction it parses (under NU5 to NU6.2,
   writing one with an Orchard bundle fails). Zebra 7.0.0 parses every transaction with this
   reader, adding rejections of its own (`zebra-chain` 15.0.0), so this holds of every version 5
   and 6 transaction Zebra accepts. Outside those hypotheses, theorems state what it computes

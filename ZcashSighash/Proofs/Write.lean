@@ -3,7 +3,7 @@ What `zcash_primitives`' writer does with what its reader returns: a version 5 o
 `Transaction::read` returns is written back as exactly the bytes it was read from
 (`write_eq_read_bytes`), so reading what was written gives the same transaction back
 (`write_read`). In version 6 with an Orchard or Ironwood bundle this needs a consensus branch ID
-of NU6.3 or later, under which the bundle versions are the ones `write_v6_bundle` accepts; under
+of NU6.3 or NU7, under which the bundle versions are the ones `write_v6_bundle` accepts; under
 NU5 to NU6.2, writing a transaction with an Orchard bundle fails (`write_v6_earlier`).
 -/
 module

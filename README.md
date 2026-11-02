@@ -39,6 +39,11 @@ type `SighashType::parse` accepts and its coin's value and `scriptPubKey`.
 for any hash-type byte, with only the scripts' length bound as a hypothesis. The Rust skips empty
 bundles itself, and hashes each Sapling spend's own anchor, as the version 4 encoding has them.
 
+`ZcashSighash/Proofs/Zakura.lean` proves the same of Zakura's fork (`txid_eq`, `authCommitment_eq`,
+`signatureHash_eq`, `v4SignatureHash_transparent`, `v4SignatureHash_shielded`), under the same
+hypotheses. Zakura's `CompactSize::write` has no `MAX_COMPACT_SIZE` bound: it writes a script of
+any length as the specification encodes it (`script_write_absorbed`), where librustzcash panics.
+
 `ZcashSighash/Proofs/Seams.lean` states what the Rust does outside those hypotheses: an empty
 transparent bundle is hashed as three empty digests; an undefined hash type kept by
 `SighashType::from_raw` is hashed as `SIGHASH_ALL` under its own byte; a script longer than

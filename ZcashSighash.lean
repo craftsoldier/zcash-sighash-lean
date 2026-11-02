@@ -8,6 +8,7 @@
 * `Verifier/`: librustzcash's digests, transcribed statement by statement.
 * `Proofs/Verifier.lean`: the transcription computes the specification's digests.
 * `Proofs/VerifierV4.lean`: the same for versions 3 and 4.
+* `Proofs/Zakura.lean`: the same for Zakura's fork.
 * `Proofs/Seams.lean`: what it computes outside those theorems' hypotheses.
 -/
 module
@@ -17,6 +18,7 @@ public import ZcashSighash.Proofs.Spec
 public import ZcashSighash.Proofs.Verifier
 public import ZcashSighash.Proofs.Seams
 public import ZcashSighash.Proofs.VerifierV4
+public import ZcashSighash.Proofs.Zakura
 public import ZcashSighash.Verifier.Blake2b
 public import ZcashSighash.Verifier.Encoding
 public import ZcashSighash.Verifier.Transparent

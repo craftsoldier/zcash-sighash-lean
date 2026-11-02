@@ -1,11 +1,13 @@
 /-
 What the transcribed `zcash_primitives` does outside the hypotheses of `Proofs/Verifier.lean`:
 each hypothesis rules out an input on which the Rust computes something other than the
-specification's digest, or panics.
+specification's digest, or panics. Then what it and Zakura do on versions 1 and 2, which no
+theorem covers.
 -/
 module
 
 public import ZcashSighash.Proofs.Verifier
+public import ZcashSighash.Verifier.Zakura
 
 @[expose] public section
 
@@ -87,5 +89,17 @@ theorem hashSaplingSpends_v5 (spends : List Sapling.SpendDescription) (hs : spen
       s.append (a.cv.toList ++ a.anchor.toList ++ a.rk.toList)),
     foldl_append_absorbed, foldl_append_absorbed]
   simp [writeAll_absorbed, unwrap_ok, finalize_absorbed, saplingSpendsNoncompactPersonalization]
+
+
+/-- Versions 1 and 2, before Overwinter, sign a SHA-256d digest these crates do not compute:
+    librustzcash's and Zakura's `v4_signature_hash` panic on them, and librustzcash's
+    `new_zip244` refuses them. -/
+theorem v4SignatureHash_sprout (tx : TransactionData) (v : BitVec 32)
+    (hv : tx.version = .sprout v) (input : SignableInput) (d : Zip143Digests) :
+    v4SignatureHash tx input d = none ∧ Zakura.v4SignatureHash tx input = none ∧
+      PrecomputedSighashData.newZip244 tx = some none := by
+  refine ⟨?_, ?_, ?_⟩ <;>
+    simp [v4SignatureHash, Zakura.v4SignatureHash, PrecomputedSighashData.newZip244, hv,
+      TxVersion.hasOverwinter]
 
 end ZcashSighash.Verifier

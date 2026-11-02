@@ -42,6 +42,11 @@ jobs:
             zakura-protocol 4.0.0 b28415ef2e0210e62bc4f9277a1d2878aecdcf13d71dc92aac5582a108cd1ff5 src/encoding.rs
             zakura-orchard 4.0.0 ded68d0841754e5cd9c6a976e3c1bf64275fbfa4cfca0e5b4ee5ee44d5bb7e74 src/bundle/commitments.rs src/action.rs src/note.rs
             zakura-sapling-crypto 4.0.0 c723f61c7b67b057185edf592111ffab15909b7f2649b6b5690ee6ac47d70d5d src/bundle.rs
+          # `unsafe` in a pinned file, outside the functions the Lean transcribes. One per line:
+          #   <name> <version> <file> <line>
+          # `nonempty`'s `len_nonzero` builds a `NonZeroUsize` from the length plus one, never 0.
+          UNSAFE_OUTSIDE_TRANSCRIPTION: |
+            nonempty 0.11.0 src/lib.rs 339
         run: |
           set -euo pipefail
           while read -r name version sha files; do
@@ -64,6 +69,15 @@ jobs:
             for f in $files; do
               [ -f "$tmp/$name-$version/$f" ] \
                 || { echo "::error::$name $version has no $f"; exit 1; }
+              # The Lean models no undefined behaviour: the transcribed code has no `unsafe`
+              # beyond the `unsafe_code` lint and the lines listed above.
+              allowed=$(awk -v n="$name" -v v="$version" -v f="$f" \
+                '$1 == n && $2 == v && $3 == f { print "^" $4 ":" }' \
+                <<< "$UNSAFE_OUTSIDE_TRANSCRIPTION")
+              if grep -n 'unsafe' "$tmp/$name-$version/$f" | grep -v 'unsafe_code' \
+                  | grep -v -e "${allowed:-^$}"; then
+                echo "::error::$name $version: $f has unsafe code"; exit 1
+              fi
             done
             echo "$name $version: matches its pin"
           done <<< "$PINS"

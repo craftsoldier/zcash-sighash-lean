@@ -1,56 +1,32 @@
 # Formalizing Zcash transaction digests
 
-A Zcash transaction's identifier and the digests its signatures sign are defined by ZIP 244
-(version 5) and ZIP 229 (version 6); before them, the signature digests by ZIP 143 (version 3)
-and ZIP 243 (version 4). This repository states those definitions in Lean 4
-(`ZcashSighash/Spec.lean`), proves what they are meant to guarantee
-(`ZcashSighash/Proofs/Spec.lean`), and proves that librustzcash computes them.
+A Zcash transaction's identifier, its authorizing-data commitment, and the digests its
+signatures sign are defined by ZIP 244 (version 5) and ZIP 229 (version 6); before them, the
+signature digests by ZIP 143 (version 3) and ZIP 243 (version 4). This repository states those
+definitions in Lean 4, with the hash as a parameter, and proves that the Rust code that computes
+them gives the specification's digests with BLAKE2b-256. Each theorem states its hypotheses:
 
-The specification takes the hash as a parameter: it holds for every hash function, and its
-theorems say when they need one without collisions. BLAKE2b enters only through
-`ZcashSighash/Verifier/Blake2b.lean`, checked on RFC 7693's test vector. With it, the
-specification gives the identifier, auth digest and signature digests of each of ZIP 244's ten
-test vectors, the digests the crates' tests give for two version 6 transactions, and the
-signature digest of each of ZIP 143's and ZIP 243's ten (`ZcashSighash/Tests/Spec.lean`). The
-specification's sources are in `spec/`, copied verbatim from the ZIPs with a header naming their
-commit.
+- `zcash_primitives` 0.31.0 (librustzcash, which Zebra uses): `to_txid`, `auth_commitment` and
+  `signature_hash` give the specification's digests for every version 3 to 6 transaction its
+  encoding can express: no empty bundles, Sapling spends that share one anchor, Orchard and
+  Ironwood bundles in their own pools, scripts no longer than `MAX_COMPACT_SIZE`, and a coin for
+  each input. Outside those hypotheses, theorems state what it computes instead, or that it
+  panics.
+- `zakura-primitives` 4.0.0 (Zakura's fork of it): the same digests under the same hypotheses,
+  for scripts of any length. Zakura's node computes version 4 to 6 signature digests, and version
+  5 and 6 identifiers and auth digests, with its own code in `zakura-chain`, which this
+  repository does not cover.
 
-`ZcashSighash/Verifier/` transcribes, statement by statement, the code that computes these
-digests, versions 3 to 6, in `zcash_primitives` 0.31.0 and the crates it calls
-(`zcash_transparent` 0.11.0, `zcash_encoding` 0.5.0, `orchard` 0.16.0, `sapling-crypto` 0.9.0),
-and, where it differs, in Zakura's fork: `zakura-primitives` 4.0.0 with `zakura-transparent`,
-`zakura-protocol`, `zakura-orchard` and `zakura-sapling-crypto` 4.0.0
-(`ZcashSighash/Verifier/Zakura.lean`). Each definition cites the lines it transcribes, and CI
-checks each crate against its crates.io checksum. Both transcriptions give the thirty-two
-transactions' digests (`ZcashSighash/Tests/Verifier.lean`).
+| Crate               | Version | Status                   | Assumes                         |
+|---------------------|---------|--------------------------|---------------------------------|
+| `zcash_primitives`  | 0.31.0  | Proven, versions 3 to 6  | `blake2b_simd` computes BLAKE2b |
+| `zakura-primitives` | 4.0.0   | Proven, versions 3 to 6  | `blake2b_simd` computes BLAKE2b |
+| `zakura-chain`      |         | Not covered              |                                 |
 
-`ZcashSighash/Proofs/Verifier.lean` proves that, with BLAKE2b-256, the transcription computes
-the specification's digests for every version 5 and 6 transaction: `txid_eq` (`to_txid`),
-`authCommitment_eq` (`auth_commitment`) and `signatureHash_eq`
-(`PrecomputedSighashData::signature_hash`, with `newZip244_eq`). Their hypotheses, `WellFormed`
-and `ContextFits`, name what the Rust types allow and a transaction read from its encoding never
-has: an empty transparent or Sapling bundle, Sapling spends with different anchors, an Orchard
-or Ironwood bundle in the other's pool, a script longer than `MAX_COMPACT_SIZE`, and an
-authorizing context without one entry per input. A signed transparent input must carry a hash
-type `SighashType::parse` accepts and its coin's value and `scriptPubKey`.
-
-`ZcashSighash/Proofs/VerifierV4.lean` proves the same of `v4_signature_hash` for versions 3 and
-4 (`v4SignatureHash_transparent`, `v4SignatureHash_shielded`): ZIP 143's and ZIP 243's digest,
-for any hash-type byte, with only the scripts' length bound as a hypothesis. The Rust skips empty
-bundles itself, and hashes each Sapling spend's own anchor, as the version 4 encoding has them.
-
-`ZcashSighash/Proofs/Zakura.lean` proves the same of Zakura's fork (`txid_eq`, `authCommitment_eq`,
-`signatureHash_eq`, `v4SignatureHash_transparent`, `v4SignatureHash_shielded`), under the same
-hypotheses. Zakura's `CompactSize::write` has no `MAX_COMPACT_SIZE` bound: it writes a script of
-any length as the specification encodes it (`script_write_absorbed`), where librustzcash panics.
-
-`ZcashSighash/Proofs/Seams.lean` states what the Rust does outside those hypotheses: an empty
-transparent bundle is hashed as three empty digests; an undefined hash type kept by
-`SighashType::from_raw` is hashed as `SIGHASH_ALL` under its own byte; a script longer than
-`MAX_COMPACT_SIZE` panics; an Ironwood bundle in the Orchard slot panics in version 5 and takes
-Ironwood's personalizations in version 6; and in version 5 each Sapling spend's own anchor is
-hashed. Checking hash types, and building transactions only from their encoding, is the
-caller's.
+The specification and both transcriptions give the digests of ZIP 244's, ZIP 143's and ZIP
+243's test vectors, and of the two version 6 transactions in the crates' own tests. Versions 1
+and 2 sign a SHA-256d digest neither crate computes; both panic on them. The transcribed code
+has no `unsafe` blocks, which CI checks.
 
 ## Verifying the proofs
 
@@ -74,3 +50,14 @@ All code in this workspace is licensed under either of
 at your option.
 
 The ZIP excerpts in `spec/` are under the MIT license in [`spec/COPYING.rst`](spec/COPYING.rst).
+
+The Lean in `ZcashSighash/Verifier/` transcribes librustzcash's crates, Copyright (c) Electric
+Coin Company (and, for `orchard`, Zcash Open Development Lab), and Zakura's, Copyright (c) The
+Zakura Contributors, all under MIT OR Apache-2.0. The test data in `ZcashSighash/Tests/` is
+copied from `zcash_primitives` 0.31.0 and `zakura-primitives` 4.0.0.
+
+### Contribution
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion
+in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above,
+without any additional terms or conditions.

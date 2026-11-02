@@ -11,6 +11,7 @@ returns.
 module
 
 public import ZcashSighash.Verifier.Native
+public import ZcashSighash.Verifier.PushNum
 
 @[expose] public section
 
@@ -95,6 +96,12 @@ def GENESIS_COINBASE_SCRIPT_SIG : List Byte :=
     102, 101, 97, 51, 53, 54, 56, 51, 97, 55, 99, 97, 99, 49, 52, 49, 97, 48, 52, 51, 99, 52, 50,
     48, 54, 52, 56, 51, 53, 100, 51, 52]
 
+/-- The `CoinbaseScript` of Zakura's `coinbase_script` (`src/transparent.rs`, lines 173–188):
+    `push_num(height.into()).to_bytes()`, `From<Height> for i64` zero-extending the `u32`
+    (`src/block/height.rs`, lines 185–189), and the genesis `scriptSig`. -/
+def CoinbaseScript.zakura : CoinbaseScript :=
+  ⟨fun height => (PushNum.pushNum (height.setWidth 64)).toBytes, GENESIS_COINBASE_SCRIPT_SIG⟩
+
 /-- `Height::MAX` (`src/block/height.rs`, line 81): `u32::MAX / 2`. -/
 def HEIGHT_MAX : ℕ := (2 ^ 32 - 1) / 2
 
@@ -109,19 +116,18 @@ def candidateHeight (scriptSig : List Byte) : Option (ℕ × ℕ) := do
     else some (((scriptSig.drop 1).take n).foldr (fun b acc => b.toNat + 256 * acc) 0, 1 + n)
   else none
 
-/-- `parse_coinbase_height` (`src/transparent/serialize.rs`, lines 58–96), with `pushNum h` for
-    `zcash_script`'s `push_num(h).to_bytes()`. -/
-def parseCoinbaseHeight (pushNum : ℕ → List Byte) (scriptSig : List Byte) :
-    Option (BitVec 32 × List Byte) := do
+/-- `parse_coinbase_height` (`src/transparent/serialize.rs`, lines 58–96). The candidate height
+    is below `2 ^ 40`, so it is its `i64`. -/
+def parseCoinbaseHeight (scriptSig : List Byte) : Option (BitVec 32 × List Byte) := do
   let (h, len) ← candidateHeight scriptSig
   if scriptSig.length < len then none
-  if scriptSig.take len ≠ pushNum h then none
+  if scriptSig.take len ≠ (PushNum.pushNum (BitVec.ofNat 64 h)).toBytes then none
   if 2 ^ 32 ≤ h then none
   if h > HEIGHT_MAX then none
   pure (BitVec.ofNat 32 h, scriptSig.drop len)
 
 /-- `Input::zcash_deserialize` (lines 169–227). -/
-def readInput (pushNum : ℕ → List Byte) : Parser Input := do
+def readInput : Parser Input := do
   let hash ← read32Bytes
   if hash.toList = List.replicate 32 0 then
     if (← readLe 4) ≠ 0xffffffff then fail
@@ -131,7 +137,7 @@ def readInput (pushNum : ℕ → List Byte) : Parser Input := do
     let scriptSig ← readBytes len
     let (height, data) ← if scriptSig = GENESIS_COINBASE_SCRIPT_SIG
       then pure (0, GENESIS_COINBASE_SCRIPT_SIG)
-      else liftM (parseCoinbaseHeight pushNum scriptSig)
+      else liftM (parseCoinbaseHeight scriptSig)
     let sequence ← readLe 4
     pure (.coinbase height data (BitVec.ofNat 32 sequence))
   else

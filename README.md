@@ -21,9 +21,10 @@ them gives the specification's digests with BLAKE2b-256. Each theorem states its
   parses them: scripts that fit in a protocol message, a coin for each input, and, in versions
   5 and 6, no input that spends a coin with the null outpoint. That its parser for transparent
   inputs and outputs returns only such inputs and outputs, with each coinbase `scriptSig`
-  rebuilt as it was read, is proven, given that `zcash_script`'s `push_num(0)` is `OP_0`. Its
-  block header's commitment to the transactions' auth digests (`hashAuthDataRoot`, and
-  `hashBlockCommitments` over it) is ZIP 244's, for any number of transactions.
+  rebuilt as it was read, is proven, through `zcash_script` 0.6.0's `push_num`, which encodes
+  the heights. Its block header's commitment to the transactions' auth digests
+  (`hashAuthDataRoot`, and `hashBlockCommitments` over it) is ZIP 244's, for any number of
+  transactions.
 - `zakura-script` 5.0.0, the callback that gives `zcash_script` 0.6.0's `OP_CHECKSIG` its digest:
   in versions 5 and 6, the specification's digest, or none where ZIP 244 says validation fails
   (an undefined hash type, or `SIGHASH_SINGLE` without a corresponding output), which fails the
@@ -76,9 +77,10 @@ The ZIP excerpts in `spec/` are under the MIT license in [`spec/COPYING.rst`](sp
 
 The Lean in `ZcashSighash/Verifier/` transcribes librustzcash's crates, Copyright (c) Electric
 Coin Company (and, for `orchard`, Zcash Open Development Lab), and Zakura's, Copyright (c) The
-Zakura Contributors, all under MIT OR Apache-2.0; and `zcash_script` 0.6.0, by the Electric
-Coin Company, the Zcash Foundation and others, under Apache-2.0. The test data in
-`ZcashSighash/Tests/` is copied from `zcash_primitives` 0.31.0 and `zakura-primitives` 4.0.0.
+Zakura Contributors, all under MIT OR Apache-2.0; `zcash_script` 0.6.0, by the Electric Coin
+Company, the Zcash Foundation and others, under Apache-2.0; and `bounded-vec` 0.9.0, under
+CC0-1.0. The test data in `ZcashSighash/Tests/` is copied from `zcash_primitives` 0.31.0,
+`zakura-primitives` 4.0.0 and `zakura-chain` 10.0.0.
 
 ### Contribution
 

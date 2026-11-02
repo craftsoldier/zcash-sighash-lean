@@ -6,9 +6,9 @@ over its parsed transaction types (`src/transparent.rs`, `src/sapling/shielded_d
 
 The types keep their invariants by construction, as the Rust's do: a Sapling component has a
 Spend or an Output, and an Orchard-shaped one has an Action. A coinbase input holds its height
-and data; `coinbase_script` rebuilds its `scriptSig` with `zcash_script`'s `push_num`, a parameter
-here (`CoinbaseScript`): the parser only accepts a `scriptSig` that starts with `push_num` of its
-height, so the rebuilt `scriptSig` is the parsed one whatever `push_num` computes.
+and data; `coinbase_script` rebuilds its `scriptSig` with `zcash_script`'s `push_num`. Here that is
+a parameter (`CoinbaseScript`), so the digest theorems hold whatever it computes; Zakura's is
+`CoinbaseScript.zakura` (`Verifier/Parse.lean`).
 -/
 module
 

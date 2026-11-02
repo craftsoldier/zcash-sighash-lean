@@ -19,6 +19,7 @@
 * `Proofs/NativeV4.lean`: it computes the specification's digest.
 * `Verifier/BlockCommitment.lean`: Zakura's commitment to a block's auth digests.
 * `Proofs/BlockCommitment.lean`: it is the specification's.
+* `Verifier/PushNum.lean`: `zcash_script`'s `push_num`, which encodes a coinbase input's height.
 * `Verifier/Parse.lean`: Zakura's parser for transparent inputs and outputs.
 * `Proofs/Parse.lean`: what it parses meets the native theorems' hypotheses.
 * `Verifier/Read.lean`: librustzcash's reader for version 5 and 6 transactions.
@@ -51,5 +52,6 @@ public import ZcashSighash.Verifier.Script
 public import ZcashSighash.Verifier.Native
 public import ZcashSighash.Verifier.NativeV4
 public import ZcashSighash.Verifier.BlockCommitment
+public import ZcashSighash.Verifier.PushNum
 public import ZcashSighash.Verifier.Parse
 public import ZcashSighash.Verifier.Read

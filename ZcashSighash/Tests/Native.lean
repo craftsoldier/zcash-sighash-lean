@@ -106,25 +106,20 @@ where
 
 /-! ## A coinbase input's `scriptSig` -/
 
-/-- A `push_num` that writes the height's low byte after a one-byte push, and a genesis script:
-    enough to tell the cases of `Input::coinbase_script` apart. -/
-def testCoinbaseScript : CoinbaseScript :=
-  ⟨fun h => [0x01, h.setWidth 8], [0x04, 0xff, 0xff, 0x00, 0x1d]⟩
-
 -- A coinbase input above genesis: `push_num(height)` then its data.
-#guard (Native.Input.coinbase 0x2a [0xaa, 0xbb] 0).coinbaseScript testCoinbaseScript ==
+#guard (Native.Input.coinbase 0x2a [0xaa, 0xbb] 0).coinbaseScript .zakura ==
   some [0x01, 0x2a, 0xaa, 0xbb]
 
 -- The genesis coinbase input: its data is the whole genesis script.
-#guard (Native.Input.coinbase 0 [0x04, 0xff, 0xff, 0x00, 0x1d] 0).coinbaseScript
-    testCoinbaseScript == some [0x04, 0xff, 0xff, 0x00, 0x1d]
+#guard (Native.Input.coinbase 0 Native.GENESIS_COINBASE_SCRIPT_SIG 0).coinbaseScript .zakura ==
+  some Native.GENESIS_COINBASE_SCRIPT_SIG
 
 -- A height 0 input with other data has no `scriptSig` (`coinbase_script`'s `expect` panics).
-#guard (Native.Input.coinbase 0 [0xaa] 0).coinbaseScript testCoinbaseScript == none
+#guard (Native.Input.coinbase 0 [0xaa] 0).coinbaseScript .zakura == none
 
 -- A non-coinbase input has none to rebuild.
-#guard (Native.Input.prevOut ⟨List.Vector.replicate 32 1, 0⟩ [0xaa] 0).coinbaseScript
-    testCoinbaseScript == none
+#guard (Native.Input.prevOut ⟨List.Vector.replicate 32 1, 0⟩ [0xaa] 0).coinbaseScript .zakura ==
+  none
 
 /-! ## Version 4 -/
 
@@ -256,7 +251,7 @@ def checkParse (v : Zip244Vector) : Bool :=
     if tx.transparent.vin.any (decide ·.prevout.IsNull) then true
     else
       let parse : Native.Parser (List Native.Input × List Native.Output) := do
-        let inputs ← Native.readVec (Native.readInput fun _ => [])
+        let inputs ← Native.readVec Native.readInput
         let outputs ← Native.readVec Native.readOutput
         pure (inputs, outputs)
       match parse ((hex v.tx).drop 20) with
@@ -270,47 +265,71 @@ def checkParse (v : Zip244Vector) : Bool :=
 
 #guard zip244Vectors.map checkParse = List.replicate 10 true
 
-/-- `push_num(h).to_bytes()` for a height, BIP 34's minimal encoding: `OP_0`, `OP_1` to
-    `OP_16`, or a push of the little-endian bytes, with a zero byte if the top bit is set. -/
-def testPushNum (h : ℕ) : List Byte :=
-  if h = 0 then [0]
-  else if h ≤ 16 then [BitVec.ofNat 8 (0x50 + h)]
-  else
-    let bytes := ((List.range 5).map fun j => BitVec.ofNat 8 (h / 256 ^ j)).reverse.dropWhile
-      (· = 0) |>.reverse
-    let bytes := if bytes.getLast?.any (0x80 ≤ ·.toNat) then bytes ++ [0] else bytes
-    BitVec.ofNat 8 bytes.length :: bytes
+/-! ## Coinbase heights
 
-/-- A coinbase input's encoding: the null outpoint, its `scriptSig`, sequence number 1. -/
-def coinbaseInputBytes (scriptSig : List Byte) : List Byte :=
+`zakura-chain` 10.0.0's coinbase tests (`src/transparent/tests/vectors.rs`), through the parser
+and `push_num`. -/
+
+/-- `build_coinbase_wire` (lines 15–33), for a `scriptSig` shorter than `0xfd` bytes. -/
+def buildCoinbaseWire (scriptSig : List Byte) : List Byte :=
   List.replicate 32 0 ++ List.replicate 4 0xff ++ [BitVec.ofNat 8 scriptSig.length] ++ scriptSig ++
-    [1, 0, 0, 0]
+    [0, 0, 0, 0]
+
+/-- `canonical_height_prefix` (lines 35–39): what `coinbase_script` writes for the height. -/
+def canonicalHeightPrefix (h : BitVec 32) : List Byte := Native.CoinbaseScript.zakura.pushNum h
 
 /-- Whether the parser reads a coinbase input of height `h` and data `d` from `scriptSig`, and
     `coinbase_script` rebuilds that `scriptSig`. -/
 def checkCoinbase (scriptSig : List Byte) (h : BitVec 32) (d : List Byte) : Bool :=
-  let cs : CoinbaseScript := ⟨fun h => testPushNum h.toNat, Native.GENESIS_COINBASE_SCRIPT_SIG⟩
-  match Native.readInput testPushNum (coinbaseInputBytes scriptSig) with
+  match Native.readInput (buildCoinbaseWire scriptSig) with
   | some (input@(.coinbase h' d' q), []) =>
-    h' == h && d' == d && q == 1 && input.coinbaseScript cs == some scriptSig
+    h' == h && d' == d && q == 0 && input.coinbaseScript .zakura == some scriptSig
   | _ => false
 
--- Height 300 (`02 2c 01`), then two bytes of data.
-#guard checkCoinbase (testPushNum 300 ++ [0xaa, 0xbb]) 300 [0xaa, 0xbb]
+-- The heights the tests below use, and 0 and 300, as their minimal script-number pushes, written
+-- out independently of `push_num`: `OP_0`, `OP_1` to `OP_16`, or a push of the little-endian
+-- bytes, with a zero byte when the top bit is set.
+#guard [0, 1, 16, 17, 127, 128, 300, 32767, 32768, 8388607, 8388608, 2147483647].map
+    canonicalHeightPrefix ==
+  [[0x00], [0x51], [0x60], [0x01, 0x11], [0x01, 0x7f], [0x02, 0x80, 0x00], [0x02, 0x2c, 0x01],
+    [0x02, 0xff, 0x7f], [0x03, 0x00, 0x80, 0x00], [0x03, 0xff, 0xff, 0x7f],
+    [0x04, 0x00, 0x00, 0x80, 0x00], [0x04, 0xff, 0xff, 0xff, 0x7f]]
 
--- Height 5 (`OP_5`), then data.
-#guard checkCoinbase (testPushNum 5 ++ [0xcc]) 5 [0xcc]
+-- `coinbase_deserialize_rejects_non_minimal_heights` (lines 41–69).
+#guard [[0x01, 0x01, 0x00], [0x02, 0x01, 0x00, 0x00], [0x03, 0x01, 0x00, 0x00, 0x00],
+    [0x04, 0x01, 0x00, 0x00, 0x00, 0x00], [0x01, 0x10, 0x00], [0x02, 0x11, 0x00, 0x00],
+    [0x03, 0x11, 0x00, 0x00, 0x00]].all fun s => (Native.readInput (buildCoinbaseWire s)).isNone
+
+-- `coinbase_deserialize_accepts_canonical_heights` (lines 71–106), each `scriptSig` also
+-- rebuilt by `coinbase_script`.
+#guard [1, 16, 17, 127, 128, 32767, 32768, 8388607, 8388608, Native.HEIGHT_MAX].all fun h =>
+  let pre := canonicalHeightPrefix (.ofNat 32 h)
+  let scriptSig := if pre.length < 2 then pre ++ [0x00] else pre
+  checkCoinbase scriptSig (.ofNat 32 h) (scriptSig.drop pre.length)
+
+-- `coinbase_script_oversize_rejected_before_allocation` (lines 130–143), with the 101 bytes and
+-- the sequence number present, so that only the length check can reject it.
+#guard (Native.readInput (buildCoinbaseWire (List.replicate 101 0x51))).isNone
+#guard (Native.readInput (buildCoinbaseWire (List.replicate 100 0x51))).isSome
+
+-- A coinbase input's sequence number is read: `0x04030201`.
+#guard match Native.readInput
+    (List.replicate 32 0 ++ List.replicate 4 0xff ++ [2, 0x51, 0x00, 1, 2, 3, 4]) with
+  | some (.coinbase _ _ q, []) => q == 0x04030201
+  | _ => false
+
+-- `coinbase_deserialize_rejects_out_of_range_heights` (lines 145–164).
+#guard [[0x01, 0x80, 0x00], [0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+    [0x05, 0x00, 0x00, 0x00, 0x80, 0x00]].all fun s =>
+  (Native.readInput (buildCoinbaseWire s)).isNone
 
 -- The genesis `scriptSig`: height 0, the whole script as data.
 #guard checkCoinbase Native.GENESIS_COINBASE_SCRIPT_SIG 0 Native.GENESIS_COINBASE_SCRIPT_SIG
 
--- A non-canonical height (5 pushed as one byte, not `OP_5`) is rejected.
-#guard (Native.readInput testPushNum (coinbaseInputBytes [1, 5, 0xcc])).isNone
-
 -- A height of 0 that is not the genesis `scriptSig` is rejected.
-#guard (Native.readInput testPushNum (coinbaseInputBytes [0, 0xcc])).isNone
+#guard (Native.readInput (buildCoinbaseWire [0x00, 0xcc])).isNone
 
 -- A `scriptSig` of one byte is shorter than `MIN_COINBASE_SCRIPT_LEN`.
-#guard (Native.readInput testPushNum (coinbaseInputBytes [0x55])).isNone
+#guard (Native.readInput (buildCoinbaseWire [0x55])).isNone
 
 end ZcashSighash.Tests

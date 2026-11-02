@@ -77,11 +77,14 @@ theorem readOutput_le {s s' : List Byte} {o : Output} (h : readOutput s = some (
     (liftM o : Parser α) s = o.map (·, s) := by
   cases o <;> rfl
 
+/-- `push_num(0)` is `OP_0`, the byte 0. -/
+theorem pushNum_zero : (PushNum.pushNum 0).toBytes = [0] := by decide
+
 /-- What `parse_coinbase_height` returns rebuilds the `scriptSig`: `push_num` of the height,
-    then the data. A height of 0 never comes from it, when `push_num(0)` is `OP_0`. -/
-theorem parseCoinbaseHeight_spec {pushNum : ℕ → List Byte} {scriptSig data : List Byte}
-    {height : BitVec 32} (h : parseCoinbaseHeight pushNum scriptSig = some (height, data)) :
-    pushNum height.toNat ++ data = scriptSig ∧ (pushNum 0 = [0] → height ≠ 0) := by
+    then the data. A height of 0 never comes from it. -/
+theorem parseCoinbaseHeight_spec {scriptSig data : List Byte} {height : BitVec 32}
+    (h : parseCoinbaseHeight scriptSig = some (height, data)) :
+    CoinbaseScript.zakura.pushNum height ++ data = scriptSig ∧ height ≠ 0 := by
   unfold parseCoinbaseHeight at h
   obtain ⟨⟨n, len⟩, hsel, h⟩ := Option.bind_eq_some_iff.mp h
   -- The prefix is one byte, or a length byte and that many bytes; its first byte is not 0.
@@ -110,10 +113,13 @@ theorem parseCoinbaseHeight_spec {pushNum : ℕ → List Byte} {scriptSig data :
   simp only [Option.pure_def, Option.some.injEq, Prod.mk.injEq] at h
   obtain ⟨rfl, rfl⟩ := h
   have hn : (BitVec.ofNat 32 n).toNat = n := by simp; omega
-  refine ⟨by rw [hn, ← not_not.mp htake, List.take_append_drop], fun h0 hz => ?_⟩
+  have hw : (BitVec.ofNat 32 n).setWidth 64 = BitVec.ofNat 64 n := by
+    apply BitVec.eq_of_toNat_eq; simp only [BitVec.toNat_setWidth, hn]; simp
+  refine ⟨by simp only [CoinbaseScript.zakura, hw]; rw [← not_not.mp htake,
+    List.take_append_drop], fun hz => ?_⟩
   have hn0 : n = 0 := by rw [← hn, hz]; rfl
   subst hn0
-  rw [h0] at htake
+  rw [show (PushNum.pushNum (BitVec.ofNat 64 0)).toBytes = [0] from pushNum_zero] at htake
   obtain ⟨b, rest, rfl⟩ := List.exists_cons_of_ne_nil
     (show scriptSig ≠ [] from fun h => by simp [h] at hfirst)
   simp only [List.head?_cons, Option.some.injEq] at hfirst
@@ -129,15 +135,14 @@ theorem parseCoinbaseHeight_spec {pushNum : ℕ → List Byte} {scriptSig data :
     hash and a script that fits in a protocol message; a coinbase input comes from a `scriptSig`
     of at most `MAX_COINBASE_SCRIPT_LEN` bytes, the genesis one or one `parse_coinbase_height`
     reads. -/
-theorem readInput_spec {pushNum : ℕ → List Byte} {s s' : List Byte} {input : Input}
-    (h : readInput pushNum s = some (input, s')) :
+theorem readInput_spec {s s' : List Byte} {input : Input} (h : readInput s = some (input, s')) :
     (∀ o u q, input = .prevOut o u q →
       o.hash.toList ≠ List.replicate 32 0 ∧ u.length ≤ MAX_PROTOCOL_MESSAGE_LEN) ∧
     (∀ height data q, input = .coinbase height data q →
       ∃ scriptSig : List Byte, scriptSig.length ≤ MAX_COINBASE_SCRIPT_LEN ∧
         (scriptSig = GENESIS_COINBASE_SCRIPT_SIG ∧ height = 0 ∧
             data = GENESIS_COINBASE_SCRIPT_SIG ∨
-          parseCoinbaseHeight pushNum scriptSig = some (height, data))) := by
+          parseCoinbaseHeight scriptSig = some (height, data))) := by
   obtain ⟨hash, s₁, -, h⟩ := Parser.bind_eq_some.mp h
   split at h
   · obtain ⟨x, s₂, -, h⟩ := Parser.bind_eq_some.mp h
@@ -184,33 +189,27 @@ theorem readInput_spec {pushNum : ℕ → List Byte} {s s' : List Byte} {input :
     exact ⟨hz, readByteVec_le hu⟩
 
 /-- An input Zakura parses as spending a coin has no null outpoint. -/
-theorem readInput_notNull {pushNum : ℕ → List Byte} {s s' : List Byte} {input : Input}
-    (h : readInput pushNum s = some (input, s')) (o : OutPoint) (u : List Byte)
+theorem readInput_notNull {s s' : List Byte} {input : Input}
+    (h : readInput s = some (input, s')) (o : OutPoint) (u : List Byte)
     (q : BitVec 32) (he : input = .prevOut o u q) :
     ¬(Input.prevOut o u q).prevoutSpec.IsNull := fun hn =>
   ((readInput_spec h).1 o u q he).1 (by simpa [Input.prevoutSpec, Spec.OutPoint.IsNull] using hn.1)
 
-/-- An input Zakura parses meets the auth digest's hypothesis (`Input.AuthFits`), for the
-    `CoinbaseScript` its parser checks coinbase inputs against: `push_num`, and the genesis
-    `scriptSig`. `zcash_script`'s `push_num(0)` is `OP_0`, the byte 0 (`src/num.rs`, lines 85–88:
-    0 serializes to no bytes, which push as `OP_0`). -/
-theorem readInput_authFits {pushNum : ℕ → List Byte} {cs : CoinbaseScript}
-    (hpush : ∀ h : BitVec 32, cs.pushNum h = pushNum h.toNat)
-    (hgen : cs.genesis = GENESIS_COINBASE_SCRIPT_SIG) (h0 : pushNum 0 = [0])
-    {s s' : List Byte} {input : Input} (h : readInput pushNum s = some (input, s')) :
-    input.AuthFits cs := by
+/-- An input Zakura parses meets the auth digest's hypothesis (`Input.AuthFits`) for its own
+    `coinbase_script`. -/
+theorem readInput_authFits {s s' : List Byte} {input : Input}
+    (h : readInput s = some (input, s')) : input.AuthFits .zakura := by
   obtain ⟨hp, hc⟩ := readInput_spec h
   cases input with
   | prevOut o u q =>
     exact ⟨fun _ _ _ h => (by cases h), by simpa [Input.scriptSig] using (hp o u q rfl).2⟩
   | coinbase height data q =>
     obtain ⟨sig, hlen, hcase⟩ := hc height data q rfl
-    have hcs : (Input.coinbase height data q).coinbaseScript cs = some sig := by
+    have hcs : (Input.coinbase height data q).coinbaseScript .zakura = some sig := by
       rcases hcase with ⟨rfl, rfl, rfl⟩ | hp'
-      · simp [Input.coinbaseScript, hgen]
+      · simp [Input.coinbaseScript, CoinbaseScript.zakura]
       · obtain ⟨hrt, hne⟩ := parseCoinbaseHeight_spec hp'
-        simp only [Input.coinbaseScript, hpush, hrt]
-        rw [ite_eq_right (hne h0)]
+        simp only [Input.coinbaseScript, hne, ↓reduceIte, hrt]
     refine ⟨fun _ _ _ _ => by simp [hcs], ?_⟩
     simp only [Input.scriptSig, hcs, Option.getD_some]
     unfold MAX_COINBASE_SCRIPT_LEN at hlen
@@ -251,18 +250,15 @@ theorem readVec_forall {α : Type} {read : Parser α} {P : α → Prop}
     with the null outpoint (`NoNullPrevOut`), each input's `scriptSig` rebuilt and fitting in a
     protocol message (`Input.AuthFits`), and each output's script fitting in one (`CacheFits`,
     which also asks it of the coins spent: outputs Zakura parsed earlier). -/
-theorem parse_meets_hypotheses {pushNum : ℕ → List Byte} {cs : CoinbaseScript}
-    (hpush : ∀ h : BitVec 32, cs.pushNum h = pushNum h.toNat)
-    (hgen : cs.genesis = GENESIS_COINBASE_SCRIPT_SIG) (h0 : pushNum 0 = [0])
-    {s₁ s₂ s₃ : List Byte} {inputs : List Input} {outputs : List Output}
-    (hi : readVec (readInput pushNum) s₁ = some (inputs, s₂))
+theorem parse_meets_hypotheses {s₁ s₂ s₃ : List Byte} {inputs : List Input}
+    {outputs : List Output} (hi : readVec readInput s₁ = some (inputs, s₂))
     (ho : readVec readOutput s₂ = some (outputs, s₃)) :
-    NoNullPrevOut inputs ∧ (∀ i ∈ inputs, i.AuthFits cs) ∧
+    NoNullPrevOut inputs ∧ (∀ i ∈ inputs, i.AuthFits .zakura) ∧
       ∀ o ∈ outputs, o.lockScript.length ≤ MAX_PROTOCOL_MESSAGE_LEN :=
   ⟨fun o u q hm => readVec_forall (P := fun i => ∀ o u q, i = .prevOut o u q →
       ¬(Input.prevOut o u q).prevoutSpec.IsNull) (fun _ _ _ h => readInput_notNull h) hi _ hm
       o u q rfl,
-    readVec_forall (fun _ _ _ h => readInput_authFits hpush hgen h0 h) hi,
+    readVec_forall (fun _ _ _ h => readInput_authFits h) hi,
     readVec_forall (fun _ _ _ h => readOutput_le h) ho⟩
 
 -- The build fails if a theorem rests on anything beyond Lean's three axioms.

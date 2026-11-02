@@ -2,8 +2,8 @@
 The specification on ZIP 244's test vectors, with BLAKE2b: each transaction, decoded from its
 version 5 encoding (ZIP 225), has the vector's identifier and auth digest, and its inputs the
 vector's signature digests. Where a vector has no `SIGHASH_SINGLE` digest, the input has no
-corresponding output, and the signature check finds no digest. Likewise two version 6
-transactions from the crates' tests, with the digests the tests give, and ZIP 143's and
+corresponding output, and the signature check finds no digest. Likewise a version 5 and two
+version 6 transactions from the crates' tests, with the digests the tests give, and ZIP 143's and
 ZIP 243's vectors: each version 3 or 4 transaction (§7.1) has the vector's signature digest.
 -/
 import ZcashSighash.Spec
@@ -140,10 +140,10 @@ def check (v : Zip244Vector) : Bool :=
 
 #guard zip244Vectors.map check = List.replicate 10 true
 
-/-! ## Version 6
+/-! ## The crates' own transactions
 
-ZIP 229 has no test vectors. The crates have two version 6 transactions whose digests were
-computed independently with Python's `hashlib.blake2b`. -/
+ZIP 229 has no test vectors. The crates have a version 5 and two version 6 transactions whose
+digests were computed independently with Python's `hashlib.blake2b`. -/
 
 /-- No Sapling Spends or Outputs. -/
 def noSapling : Sapling := ⟨[], [], 0, List.Vector.replicate 32 0, List.Vector.replicate 64 0⟩
@@ -152,43 +152,50 @@ def noSapling : Sapling := ⟨[], [], 0, List.Vector.replicate 32 0, List.Vector
 def noActions : OrchardBundle :=
   ⟨[], 0, 0, List.Vector.replicate 32 0, [], List.Vector.replicate 64 0⟩
 
-/-- A version 6 transaction from a crate's test, with the digests the test gives. -/
-structure V6Vector where
+/-- A transaction from a crate's test, with the digests the test gives. -/
+structure CrateVector where
   tx : Transaction
-  headerDigest : String
+  headerDigest : Option String
   txid : String
   authDigest : Option String
   sighashShielded : Option String
 
-/-- The two version 6 transactions. -/
-def v6Vectors : List V6Vector := [
-  /- No transparent or shielded parts, under NU7's branch ID: `zcash_primitives` 0.31.0's
+/-- The crates' transactions. -/
+def crateVectors : List CrateVector := [
+  /- Version 5, with no transparent or shielded parts, under NU7's branch ID: `zcash_primitives`
+     0.31.0's `nu7_v5_encoding_and_digests_are_feature_independent` (`src/transaction/tests.rs`,
+     lines 120–181). -/
+  ⟨{ format := .v5, header := ⟨0x80000005, 0x26A7270A, 0x77190AD9, 0, 1⟩,
+      transparent := ⟨[], []⟩, scriptSigs := [], sapling := noSapling, orchard := noActions },
+    none, "328d975581fbf002206ef6f0b69fe57fb47f40ec31c59ac62c3565d4e259e128", none,
+    some "328d975581fbf002206ef6f0b69fe57fb47f40ec31c59ac62c3565d4e259e128"⟩,
+  /- Version 6, likewise: `zcash_primitives` 0.31.0's
      `nu7_v6_encoding_and_digests_are_feature_independent` (`src/transaction/tests.rs`, lines
      44–118). -/
   ⟨{ format := .v6 noActions, header := ⟨0x80000006, 0xD884B698, 0x77190AD9, 0, 1⟩,
       transparent := ⟨[], []⟩, scriptSigs := [], sapling := noSapling, orchard := noActions },
-    "199b8446da5a9247711a94527997d7e87c31dfe5e8efb4b34d020a2aee8ee1c5",
+    some "199b8446da5a9247711a94527997d7e87c31dfe5e8efb4b34d020a2aee8ee1c5",
     "78296c68a370c2e1f058d997c81c7b011c4562c52fc5ca2994ad59cd179fbe9e", none,
     some "78296c68a370c2e1f058d997c81c7b011c4562c52fc5ca2994ad59cd179fbe9e"⟩,
-  /- One transparent input, spending output 0 of the zero txid with an empty `scriptSig`, and one
-     output of 50000 zatoshis to the script `OP_1`: `zakura-primitives` 4.0.0's
+  /- Version 6, with one transparent input, spending output 0 of the zero txid with an empty
+     `scriptSig`, and one output of 50000 zatoshis to the script `OP_1`: `zakura-primitives` 4.0.0's
      `v6_encoding_hashes_and_fee_are_independent_of_nu7_cfg` (`src/transaction/tests.rs`, lines
      55–93). Its coin is not given, so neither is its signature digest. -/
   ⟨{ format := .v6 noActions, header := ⟨0x80000006, 0xD884B698, 0x37A5165B, 1, 2⟩,
       transparent := ⟨[⟨⟨List.Vector.replicate 32 0, 0⟩, 0xffffffff, ⟨0, []⟩⟩], [⟨50000, [0x51]⟩]⟩,
       scriptSigs := [[]], sapling := noSapling, orchard := noActions },
-    "434bc31eb5d67ac6b935ab85cb0aabc06b079c39f8f4e1b50a6048372b3bfa2d",
+    some "434bc31eb5d67ac6b935ab85cb0aabc06b079c39f8f4e1b50a6048372b3bfa2d",
     "e11e16887d9aea199fc4eaa3b371c6868ded3e9a2b1c3393a7b0c15f79e73179",
     some "454423cf6de9acb289a60852144679176cea3bd5e5ec51526d483ced2533e73a", none⟩]
 
 /-- Whether the specification gives the vector's digests. -/
-def checkV6 (v : V6Vector) : Bool :=
-  (headerDigest blake2b256 v.tx.header).toList == hex v.headerDigest &&
+def checkCrate (v : CrateVector) : Bool :=
+  (v.headerDigest.all fun d => (headerDigest blake2b256 v.tx.header).toList == hex d) &&
   (v.tx.txid blake2b256).toList == hex v.txid &&
   (v.authDigest.all fun d => (v.tx.authDigest blake2b256).toList == hex d) &&
   v.sighashShielded.all fun d => (v.tx.signatureDigest blake2b256 .shielded).toList == hex d
 
-#guard v6Vectors.map checkV6 = [true, true]
+#guard crateVectors.map checkCrate = List.replicate 3 true
 
 /-! ## Versions 3 and 4 -/
 

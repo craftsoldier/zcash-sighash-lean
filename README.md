@@ -49,13 +49,13 @@ them gives the specification's digests with BLAKE2b-256. Each theorem states its
 | `zakura-chain`      | 10.0.0  | Proven, 4 to 6 (txid: 5, 6) | `blake2b_simd` computes BLAKE2b |
 
 The specification and both `zcash_primitives` transcriptions give the digests of ZIP 244's, ZIP
-143's and ZIP 243's test vectors, and of the two version 6 transactions in the crates' own tests;
-`zakura-chain`'s, those of the version 4 to 6 ones. Versions 1 and 2 sign a SHA-256d digest
-that none of these crates computes: `zcash_primitives` and `zakura-primitives` panic on them, and
-`zakura-chain` hands them to `zakura-primitives`. The transcribed code has no `unsafe` blocks,
-which CI checks. The theorems are about what the code computes, not what it costs: that a block's
-signature digests take time linear in its size, which ZIP 143 and ZIP 244 set out to ensure, is
-not proven.
+143's and ZIP 243's test vectors, and of the version 5 and two version 6 transactions in the
+crates' own tests; `zakura-chain`'s, those of the version 4 to 6 ones. Versions 1 and 2 sign a
+SHA-256d digest that none of these crates computes: `zcash_primitives` and `zakura-primitives`
+panic on them, and `zakura-chain` hands them to `zakura-primitives`. The transcribed code has no
+`unsafe` blocks, which CI checks. The theorems are about what the code computes, not what it
+costs: that a block's signature digests take time linear in its size, which ZIP 143 and ZIP 244
+set out to ensure, is not proven.
 
 ## Verifying the proofs
 

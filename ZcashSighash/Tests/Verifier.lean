@@ -3,8 +3,8 @@ The transcribed `zcash_primitives` on ZIP 244's test vectors, as its own test do
 (`src/transaction/tests.rs`, lines 1229–1421, `zip_0244`): each transaction's `to_txid`,
 `auth_commitment`, and the signature hash of a shielded input and, under each hash type
 `SighashType::parse` accepts, of the vector's transparent input. Where the vector has no
-`SIGHASH_SINGLE` digest, the crate still computes one, as its test skips it. Likewise the two
-version 6 transactions' digests, and `v4_signature_hash` on ZIP 143's and ZIP 243's vectors
+`SIGHASH_SINGLE` digest, the crate still computes one, as its test skips it. Likewise the crates'
+own transactions' digests, and `v4_signature_hash` on ZIP 143's and ZIP 243's vectors
 (`zip_0143`, `zip_0243`, lines 1084–1148).
 -/
 import ZcashSighash.Verifier.Zakura
@@ -16,11 +16,12 @@ namespace ZcashSighash.Tests
 open ZcashSighash.Spec
 open ZcashSighash.Verifier
 
-/-- A decoded version 5 transaction as `Transaction::read` holds it: a bundle only when it is
-    not empty, each Sapling spend with the shared anchor, the Orchard bundle in the Orchard pool,
-    and the spent coins as the authorizing context, as the crate's test builds it. -/
+/-- A decoded transaction as `Transaction::read` holds it: a bundle only when it is not empty,
+    each Sapling spend with the shared anchor, the Orchard bundle in the Orchard pool, no Ironwood
+    bundle (the crates' version 6 transactions have none), and the spent coins as the authorizing
+    context, as the crate's test builds it. -/
 def toTransactionData (tx : Spec.Transaction) : TransactionData where
-  version := .v5
+  version := match tx.format with | .v5 => .v5 | .v6 _ => .v6
   consensusBranchId := tx.header.consensusBranchId
   lockTime := tx.header.lockTime
   expiryHeight := tx.header.expiryHeight
@@ -89,22 +90,18 @@ def checkVerifier (v : Zip244Vector) : Bool :=
 
 #guard zip244Vectors.map checkVerifier = List.replicate 10 true
 
-/-- A version 6 vector's transaction, as `TransactionData::from_parts_v6` builds it. -/
-def toTransactionDataV6 (tx : Spec.Transaction) : TransactionData :=
-  { toTransactionData tx with version := .v6 }
-
-/-- Whether the transcription gives the version 6 vector's digests. -/
-def checkVerifierV6 (v : V6Vector) : Bool :=
-  let tx := toTransactionDataV6 v.tx
+/-- Whether the transcription gives the crate vector's digests. -/
+def checkVerifierCrate (v : CrateVector) : Bool :=
+  let tx := toTransactionData v.tx
   match tx.txIdDigests, PrecomputedSighashData.newZip244 tx with
   | some digests, some (some precomputed) =>
-    digests.headerDigest == hex v.headerDigest &&
+    (v.headerDigest.all fun d => digests.headerDigest == hex d) &&
     toTxid tx.version tx.consensusBranchId digests == some (some (hex v.txid)) &&
     (v.authDigest.all fun d => tx.authCommitment == some (hex d)) &&
     v.sighashShielded.all fun d => precomputed.signatureHash .shielded == some (hex d)
   | _, _ => false
 
-#guard v6Vectors.map checkVerifierV6 = [true, true]
+#guard crateVectors.map checkVerifierCrate = List.replicate 3 true
 
 /-- A decoded version 3 or 4 transaction as `Transaction::read` holds it. -/
 def legacyToTransactionData (tx : Spec.LegacyTransaction) (v4 : Bool) : TransactionData where
@@ -201,18 +198,18 @@ def checkZakura (v : Zip244Vector) : Bool :=
 
 #guard zip244Vectors.map checkZakura = List.replicate 10 true
 
-/-- Whether Zakura gives the version 6 vector's digests. -/
-def checkZakuraV6 (v : V6Vector) : Bool :=
-  let tx := toTransactionDataV6 v.tx
+/-- Whether Zakura gives the crate vector's digests. -/
+def checkZakuraCrate (v : CrateVector) : Bool :=
+  let tx := toTransactionData v.tx
   match Zakura.TransactionData.txIdDigests tx with
   | some digests =>
-    digests.headerDigest == hex v.headerDigest &&
+    (v.headerDigest.all fun d => digests.headerDigest == hex d) &&
     Zakura.toTxid tx.version tx.consensusBranchId digests == some (hex v.txid) &&
     (v.authDigest.all fun d => Zakura.TransactionData.authCommitment tx == some (hex d)) &&
     v.sighashShielded.all fun d => Zakura.signatureHash tx .shielded digests == some (hex d)
   | none => false
 
-#guard v6Vectors.map checkZakuraV6 = [true, true]
+#guard crateVectors.map checkZakuraCrate = List.replicate 3 true
 
 /-- Whether Zakura's `v4_signature_hash` gives the vector's digest. -/
 def checkZakuraLegacy (v : LegacyVector) : Bool :=
@@ -256,6 +253,11 @@ def checkRead (ctx : Transparent.AuthorizingContext) (bytes rest : List Byte) (t
 #guard zip244Vectors.map (fun v => checkRead
   ⟨v.amounts.map (BitVec.ofNat 64), v.scriptPubKeys.map fun s => ⟨hex s⟩⟩ (hex v.tx) []
   v.txid (some v.authDigest)) = List.replicate 10 true
+
+/- The version 5 transaction's encoding (`zcash_primitives` 0.31.0, `src/transaction/tests.rs`,
+   line 124): as its test checks (lines 155–162), the reader leaves nothing. -/
+#guard checkRead ⟨[], []⟩ (hex "050000800a27a726d90a197700000000010000000000000000") []
+  "328d975581fbf002206ef6f0b69fe57fb47f40ec31c59ac62c3565d4e259e128" none
 
 /-- The first version 6 transaction's encoding (`zcash_primitives` 0.31.0,
     `src/transaction/tests.rs`, line 46), and the trailer its test reads it from (line 52). -/

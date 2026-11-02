@@ -1,7 +1,9 @@
 /-
 Zakura's own ZIP 244 / ZIP 229 digests on ZIP 244's test vectors and the two version 6
 transactions: each transaction's identifier and auth digest, its shielded signature digest, and
-its transparent input's signature digest under each hash type the vector gives one for.
+its transparent input's signature digest under each hash type the vector gives one for. Its own
+ZIP 243 digest on ZIP 243's vectors. Then the signature check's failure cases: every byte a
+signature can end with, through Zakura's callback over its own `SigHasher`.
 -/
 import ZcashSighash.Verifier.NativeV4
 import ZcashSighash.Proofs.Native
@@ -170,5 +172,60 @@ def checkNativeV4 (v : LegacyVector) : Bool :=
     | _ => false
 
 #guard zip243Vectors.map checkNativeV4 = List.replicate 10 true
+
+/-! ## Every hash-type byte, through the callback -/
+
+/-- Whether, for each of the 256 bytes a signature can end with, Zakura's callback over its own
+    `SigHasher` gives the vector's transparent input the specification's result: the digest, or
+    no digest where ZIP 244 says validation fails (an undefined hash type, or `SIGHASH_SINGLE`
+    without a corresponding output). -/
+def checkEveryByte (v : Zip244Vector) : Bool :=
+  match decode (hex v.tx) (v.amounts.zip v.scriptPubKeys |>.map
+      fun (a, s) => ⟨.ofNat _ a, hex s⟩) with
+  | none => false
+  | some tx =>
+    match v.transparentInput, Zip244SighashCache.new (toParts tx) (previousOutputs tx) with
+    | none, _ => true
+    | some _, none => false
+    | some i, some cache =>
+      if h : i < tx.transparent.vin.length then
+        (List.range 256).all fun n =>
+          let b : Byte := .ofNat 8 n
+          (Script.HashType.fromBits (b.setWidth 32) false).toOption.map (fun hashType =>
+              Script.calculateSighash ⟨Native.sigHasherSighash cache, fun _ _ => none⟩ 5
+                tx.transparent.vout.length i [] hashType) ==
+            some (some ((transparentSighash? blake2b256 (tx.version blake2b256)
+              tx.header.consensusBranchId (headerDigest blake2b256 tx.header)
+              (saplingDigest blake2b256 tx.format tx.sapling) (tx.orchardDigest blake2b256)
+              ⟨i, h⟩ b).map (·.toList)))
+      else false
+
+#guard zip244Vectors.map checkEveryByte = List.replicate 10 true
+
+/-- Whether, for each of the 256 bytes a signature can end with, Zakura's callback over its own
+    version 4 `SigHasher` gives the vector's transparent input ZIP 243's digest of that byte. -/
+def checkEveryByteV4 (v : LegacyVector) : Bool :=
+  let spent : List TxOut := match v.transparentInput with
+    | none => []
+    | some i => List.replicate i ⟨0, []⟩ ++ [⟨.ofNat _ v.amount, []⟩]
+  match (legacyDecoder (.ofNat _ v.branch.id) spent).run' (hex v.tx), v.transparentInput with
+  | none, _ => false
+  | some _, none => true
+  | some tx, some i =>
+    let previous := tx.transparent.vin.map fun i => (⟨i.spent.value, []⟩ : Native.Output)
+    match Native.V4.V4Sighash.new (toV4 tx) (some (.ofNat _ v.branch.id)) previous with
+    | some (some s) =>
+      if h : i < tx.transparent.vin.length then
+        (List.range 256).all fun n =>
+          let b : Byte := .ofNat 8 n
+          (Script.HashType.fromBits (b.setWidth 32) false).toOption.map (fun hashType =>
+              Script.calculateSighash ⟨fun _ _ => none, Native.V4.sigHasherSighashV4Raw s⟩ 4
+                tx.transparent.vout.length i (hex v.scriptCode) hashType) ==
+            some (some (some (legacySignatureDigest blake2b256 tx
+              (.transparent b ⟨i, h⟩ (hex v.scriptCode))).toList))
+      else false
+    | _ => false
+
+#guard zip243Vectors.map checkEveryByteV4 = List.replicate 10 true
 
 end ZcashSighash.Tests

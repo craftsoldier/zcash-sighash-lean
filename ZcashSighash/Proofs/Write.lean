@@ -977,21 +977,24 @@ theorem readV5_writes {ctx : Transparent.AuthorizingContext} {v : TxVersion} {s 
 
 /-- Under a branch of the third Orchard protocol revision (NU6.3 and NU7), `write_v6_bundle`
     accepts a bundle of either pool, and writes it as `write_bundle` does. -/
-theorem writeV6OrchardBundle_eq {branchId : BitVec 32}
-    (hrev : orchardProtocolRevision branchId = some .v3) (ob : Option Orchard.Bundle)
-    (buf : VecU8) : writeV6OrchardBundle branchId ob buf = writeOrchardBundle ob buf := by
+theorem writeV6OrchardBundle_eq {branchId : BitVec 32} {ob : Option Orchard.Bundle}
+    (hrev : ob.isSome → orchardProtocolRevision branchId = some .v3) (buf : VecU8) :
+    writeV6OrchardBundle branchId ob buf = writeOrchardBundle ob buf := by
   cases ob with
   | none => rfl
   | some b =>
+    have hrev := hrev rfl
     cases hp : b.valuePool <;>
       simp [writeV6OrchardBundle, bundleVersionForBranch, hrev, hp, checkV6BundleVersion, bind,
         Except.bind]
 
 /-- A version 6 transaction's header and bundles, as `read_v6` reads them and `write_v6` writes
-    them after the version, under a branch of the third Orchard protocol revision. -/
+    them after the version, if it has an Orchard or Ironwood bundle under a branch of the third
+    Orchard protocol revision. -/
 theorem readV6_writes {ctx : Transparent.AuthorizingContext} {v : TxVersion} {s s' : List Byte}
     {tx : TransactionData} (h : readV6 ctx v s = some (tx, s'))
-    (hrev : orchardProtocolRevision tx.consensusBranchId = some .v3) :
+    (hrev : tx.orchardBundle.isSome ∨ tx.ironwoodBundle.isSome →
+      orchardProtocolRevision tx.consensusBranchId = some .v3) :
     ∃ w, (∀ buf, tx.writeV6 (buf : VecU8) = .ok (buf ++ tx.version.write ++ w)) ∧
       s = w ++ s' := by
   obtain ⟨r, s₁, h₁, hk⟩ := Parser.bind_eq_some.mp h
@@ -1012,14 +1015,17 @@ theorem readV6_writes {ctx : Transparent.AuthorizingContext} {v : TxVersion} {s 
   have hwt' := hwt ⟨v, b, c, d, t, none, sap, orc, iw⟩ rfl
   simp only [TransactionData.writeV6, TransactionData.writeV5Header, Option.isSome_none,
     Bool.false_eq_true, ite_false, bind, Except.bind, vec_write, hwt', hws,
-    writeV6OrchardBundle_eq hrev, hwo, hwi, List.append_assoc]
+    writeV6OrchardBundle_eq (fun h => hrev (.inl h)), writeV6OrchardBundle_eq
+      (fun h => hrev (.inr h)), hwo, hwi, List.append_assoc]
 
 /-- **A version 5 or 6 transaction `zcash_primitives` reads is written back as exactly the bytes
-    it was read from**; in version 6, under a branch of the third Orchard protocol revision
-    (NU6.3 or NU7), as Zebra requires of every version 6 transaction it parses. -/
+    it was read from**; in version 6 with an Orchard or Ironwood bundle, under a branch of the
+    third Orchard protocol revision (NU6.3 or NU7), as Zebra requires of every version 6
+    transaction it parses. -/
 theorem read_write_eq {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
     {tx : TransactionData} (h : read ctx s = some (.tx tx, s'))
-    (hrev : tx.version = .v6 → orchardProtocolRevision tx.consensusBranchId = some .v3) :
+    (hrev : tx.version = .v6 → tx.orchardBundle.isSome ∨ tx.ironwoodBundle.isSome →
+      orchardProtocolRevision tx.consensusBranchId = some .v3) :
     ∃ w, tx.write ([] : VecU8) = .ok w ∧ s = w ++ s' := by
   obtain ⟨s₁, ⟨hv, ht⟩ | ⟨hv, ht⟩⟩ := read_tx h
   · have hver := readV5_version ht
@@ -1038,7 +1044,8 @@ theorem read_write_eq {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
     transactions with `write` and loads them with `read`. -/
 theorem write_read {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
     {tx : TransactionData} (h : read ctx s = some (.tx tx, s'))
-    (hrev : tx.version = .v6 → orchardProtocolRevision tx.consensusBranchId = some .v3) :
+    (hrev : tx.version = .v6 → tx.orchardBundle.isSome ∨ tx.ironwoodBundle.isSome →
+      orchardProtocolRevision tx.consensusBranchId = some .v3) :
     ∃ w, tx.write ([] : VecU8) = .ok w ∧ ∀ r, read ctx (w ++ r) = some (.tx tx, r) := by
   obtain ⟨w, hw, rfl⟩ := read_write_eq h hrev
   obtain ⟨w', hs, hr⟩ := consumes_read ctx _ _ _ h
@@ -1050,11 +1057,13 @@ theorem bind_error {α β : Type} (x : IoResult α) {f : α → IoResult β}
     (hf : ∀ a, f a = .error ()) : (x >>= f) = .error () := by
   cases x <;> simp [bind, Except.bind, hf]
 
-/-- **Writing a version 6 transaction with an Orchard bundle under a branch before NU6.3 fails**:
-    `read_v6_bundle` gives the bundle an earlier version, which `write_v6_bundle` rejects. Zebra
-    rejects such a transaction when it parses it, so every one it parses can be written. -/
-theorem write_v6_earlier (tx : TransactionData) (hv : tx.version = .v6) (b : Orchard.Bundle)
-    (hb : tx.orchardBundle = some b) (hp : b.valuePool = .orchard)
+/-- **Writing a version 6 transaction `zcash_primitives` read, with an Orchard bundle under a
+    branch before NU6.3, fails**: `read_v6_bundle` gives the bundle an earlier version, which
+    `write_v6_bundle` rejects. Zebra rejects such a transaction when it parses it, so every one it
+    parses can be written. -/
+theorem write_v6_earlier {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
+    {tx : TransactionData} (_h : read ctx s = some (.tx tx, s')) (hv : tx.version = .v6)
+    (b : Orchard.Bundle) (hb : tx.orchardBundle = some b) (hp : b.valuePool = .orchard)
     (hrev : orchardProtocolRevision tx.consensusBranchId ≠ some .v3) (buf : VecU8) :
     tx.write buf = .error () := by
   have hw : ∀ buf' : VecU8,

@@ -1,12 +1,14 @@
 /-
 `zcash_primitives` 0.31.0's `Transaction::write` (`src/transaction/mod.rs`,
 `src/transaction/components/{sapling,orchard}.rs`), and the writers it calls in
-`zcash_transparent` 0.11.0, under the default features (no `zip-233`), into a `Vec<u8>`.
+`zcash_transparent` 0.11.0 (`Verifier/Transparent.lean`), under the default features (no
+`zip-233`), into a `Vec<u8>`.
 
-An Orchard-shaped bundle's `BundleVersion` is not held (`Verifier/Shielded.lean`): the version
-`write_v6_bundle` checks is the one `read_v6_bundle` gives a bundle it reads,
-`bundle_version_for_branch` of the transaction's consensus branch ID and the bundle's pool, which
-is computed here from those.
+An Orchard-shaped bundle's `BundleVersion` is not held (`Verifier/Shielded.lean`). The version
+`write_v6_bundle` checks is computed here from the transaction's consensus branch ID and the
+bundle's pool, as `bundle_version_for_branch`: the version `read_v6_bundle` gives a bundle it
+reads. So the writer is the crate's for a transaction `Transaction::read` returned; a bundle built
+otherwise may hold another version.
 -/
 module
 
@@ -18,15 +20,6 @@ namespace ZcashSighash.Verifier
 
 open Spec (Byte Bytes)
 
-/-! ## `zcash_transparent` 0.11.0 -/
-
-/-- `TxIn::write` (`src/bundle.rs`, lines 275–279). -/
-def Transparent.TxIn.write {W : Type} [Write W] (self : Transparent.TxIn) (writer : W) :
-    IoResult W := do
-  let writer ← self.prevout.write writer
-  let writer ← self.scriptSig.write writer
-  Write.writeAll writer (toLeBytes 4 self.sequence)
-
 /-! ## `zcash_protocol` 0.11.0, `src/consensus.rs` -/
 
 /-- `OrchardProtocolRevision` (lines 1085–1099). -/
@@ -35,13 +28,50 @@ inductive OrchardProtocolRevision where
   | v2
   | v3
 
-/-- `BranchId::try_from` (lines 893–915), then `orchard_protocol_revision` (lines 1064–1075):
-    none for a branch before NU5, or for an unknown branch ID, which `try_from` rejects. -/
-def orchardProtocolRevision (branchId : BitVec 32) : Option OrchardProtocolRevision :=
-  if branchId = 0xc2d6d0b4 ∨ branchId = 0xc8e71055 ∨ branchId = 0x4dec4df0 then some .insecureV1
-  else if branchId = 0x5437f330 then some .v2
-  else if branchId = 0x37a5165b ∨ branchId = 0x77190ad9 then some .v3
+/-- `BranchId` (lines 858–888), without `NuTachyon`, which only `zcash_unstable = "nutachyon"`
+    has. -/
+inductive BranchId where
+  | sprout
+  | overwinter
+  | sapling
+  | blossom
+  | heartwood
+  | canopy
+  | nu5
+  | nu6
+  | nu6_1
+  | nu6_2
+  | nu6_3
+  | nu7
+
+/-- `BranchId::try_from` (lines 893–915): an error for an unknown branch ID. -/
+def BranchId.tryFrom (value : BitVec 32) : Option BranchId :=
+  if value = 0 then some .sprout
+  else if value = 0x5ba81b19 then some .overwinter
+  else if value = 0x76b809bb then some .sapling
+  else if value = 0x2bb40e60 then some .blossom
+  else if value = 0xf5b9230b then some .heartwood
+  else if value = 0xe9ff75a6 then some .canopy
+  else if value = 0xc2d6d0b4 then some .nu5
+  else if value = 0xc8e71055 then some .nu6
+  else if value = 0x4dec4df0 then some .nu6_1
+  else if value = 0x5437f330 then some .nu6_2
+  else if value = 0x37a5165b then some .nu6_3
+  else if value = 0x77190ad9 then some .nu7
   else none
+
+/-- `BranchId::orchard_protocol_revision` (lines 1064–1075): none before NU5. -/
+def BranchId.orchardProtocolRevision : BranchId → Option OrchardProtocolRevision
+  | .sprout | .overwinter | .sapling | .blossom | .heartwood | .canopy => none
+  | .nu5 | .nu6 | .nu6_1 => some .insecureV1
+  | .nu6_2 => some .v2
+  | .nu6_3 | .nu7 => some .v3
+
+/-- The Orchard protocol revision of a transaction's consensus branch ID: `Transaction::read`
+    holds it as the `BranchId` `try_from` gives (`read_header_fragment`,
+    `src/transaction/mod.rs`, lines 1152–1170), here none for an unknown one. -/
+def orchardProtocolRevision (branchId : BitVec 32) : Option OrchardProtocolRevision :=
+  (BranchId.tryFrom branchId).bind BranchId.orchardProtocolRevision
 
 /-! ## `zcash_primitives` 0.31.0, `src/transaction/components/orchard.rs` -/
 

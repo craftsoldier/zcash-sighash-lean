@@ -9,6 +9,7 @@ own tests of the block's auth data root.
 import ZcashSighash.Verifier.NativeV4
 import ZcashSighash.Verifier.BlockCommitment
 import ZcashSighash.Proofs.Native
+import ZcashSighash.Verifier.Parse
 import ZcashSighash.Tests.Spec
 
 namespace ZcashSighash.Tests
@@ -241,5 +242,75 @@ def checkEveryByteV4 (v : LegacyVector) : Bool :=
 -- `auth_data_pre_v5`: a pre-version 5 transaction's leaf is the placeholder.
 #guard Native.authDataRootOfTransactions [none] ==
   Native.authDataRoot [List.replicate 32 0xff]
+
+/-! ## The transparent parser -/
+
+/-- Whether Zakura's parser reads the vector's transparent inputs and outputs (after the
+    version 5 header's 20 bytes) as the specification's decoder does. A vector with a coinbase
+    input is skipped: its `scriptSig` does not start with a height, which Zakura rejects. -/
+def checkParse (v : Zip244Vector) : Bool :=
+  match decode (hex v.tx) (v.amounts.zip v.scriptPubKeys |>.map
+      fun (a, s) => ⟨.ofNat _ a, hex s⟩) with
+  | none => false
+  | some tx =>
+    if tx.transparent.vin.any (decide ·.prevout.IsNull) then true
+    else
+      let parse : Native.Parser (List Native.Input × List Native.Output) := do
+        let inputs ← Native.readVec (Native.readInput fun _ => [])
+        let outputs ← Native.readVec Native.readOutput
+        pure (inputs, outputs)
+      match parse ((hex v.tx).drop 20) with
+      | none => false
+      | some ((inputs, outputs), _) =>
+        inputs.map (·.prevoutSpec.encode) == tx.transparent.vin.map (·.prevout.encode) &&
+        inputs.map (·.sequence) == tx.transparent.vin.map (·.nSequence) &&
+        inputs.map (·.scriptSig (coinbaseScriptOf tx)) == tx.scriptSigs &&
+        outputs.map (fun o => (o.value, o.lockScript)) ==
+          tx.transparent.vout.map fun o => (o.value, o.scriptPubKey)
+
+#guard zip244Vectors.map checkParse = List.replicate 10 true
+
+/-- `push_num(h).to_bytes()` for a height, BIP 34's minimal encoding: `OP_0`, `OP_1` to
+    `OP_16`, or a push of the little-endian bytes, with a zero byte if the top bit is set. -/
+def testPushNum (h : ℕ) : List Byte :=
+  if h = 0 then [0]
+  else if h ≤ 16 then [BitVec.ofNat 8 (0x50 + h)]
+  else
+    let bytes := ((List.range 5).map fun j => BitVec.ofNat 8 (h / 256 ^ j)).reverse.dropWhile
+      (· = 0) |>.reverse
+    let bytes := if bytes.getLast?.any (0x80 ≤ ·.toNat) then bytes ++ [0] else bytes
+    BitVec.ofNat 8 bytes.length :: bytes
+
+/-- A coinbase input's encoding: the null outpoint, its `scriptSig`, sequence number 1. -/
+def coinbaseInputBytes (scriptSig : List Byte) : List Byte :=
+  List.replicate 32 0 ++ List.replicate 4 0xff ++ [BitVec.ofNat 8 scriptSig.length] ++ scriptSig ++
+    [1, 0, 0, 0]
+
+/-- Whether the parser reads a coinbase input of height `h` and data `d` from `scriptSig`, and
+    `coinbase_script` rebuilds that `scriptSig`. -/
+def checkCoinbase (scriptSig : List Byte) (h : BitVec 32) (d : List Byte) : Bool :=
+  let cs : CoinbaseScript := ⟨fun h => testPushNum h.toNat, Native.GENESIS_COINBASE_SCRIPT_SIG⟩
+  match Native.readInput testPushNum (coinbaseInputBytes scriptSig) with
+  | some (input@(.coinbase h' d' q), []) =>
+    h' == h && d' == d && q == 1 && input.coinbaseScript cs == some scriptSig
+  | _ => false
+
+-- Height 300 (`02 2c 01`), then two bytes of data.
+#guard checkCoinbase (testPushNum 300 ++ [0xaa, 0xbb]) 300 [0xaa, 0xbb]
+
+-- Height 5 (`OP_5`), then data.
+#guard checkCoinbase (testPushNum 5 ++ [0xcc]) 5 [0xcc]
+
+-- The genesis `scriptSig`: height 0, the whole script as data.
+#guard checkCoinbase Native.GENESIS_COINBASE_SCRIPT_SIG 0 Native.GENESIS_COINBASE_SCRIPT_SIG
+
+-- A non-canonical height (5 pushed as one byte, not `OP_5`) is rejected.
+#guard (Native.readInput testPushNum (coinbaseInputBytes [1, 5, 0xcc])).isNone
+
+-- A height of 0 that is not the genesis `scriptSig` is rejected.
+#guard (Native.readInput testPushNum (coinbaseInputBytes [0, 0xcc])).isNone
+
+-- A `scriptSig` of one byte is shorter than `MIN_COINBASE_SCRIPT_LEN`.
+#guard (Native.readInput testPushNum (coinbaseInputBytes [0x55])).isNone
 
 end ZcashSighash.Tests

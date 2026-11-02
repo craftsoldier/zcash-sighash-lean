@@ -19,6 +19,8 @@
 * `Proofs/NativeV4.lean`: it computes the specification's digest.
 * `Verifier/BlockCommitment.lean`: Zakura's commitment to a block's auth digests.
 * `Proofs/BlockCommitment.lean`: it is the specification's.
+* `Verifier/Parse.lean`: Zakura's parser for transparent inputs and outputs.
+* `Proofs/Parse.lean`: what it parses meets the native theorems' hypotheses.
 -/
 module
 
@@ -33,6 +35,7 @@ public import ZcashSighash.Proofs.Script
 public import ZcashSighash.Proofs.Native
 public import ZcashSighash.Proofs.NativeV4
 public import ZcashSighash.Proofs.BlockCommitment
+public import ZcashSighash.Proofs.Parse
 public import ZcashSighash.Verifier.Blake2b
 public import ZcashSighash.Verifier.Encoding
 public import ZcashSighash.Verifier.Transparent
@@ -45,3 +48,4 @@ public import ZcashSighash.Verifier.Script
 public import ZcashSighash.Verifier.Native
 public import ZcashSighash.Verifier.NativeV4
 public import ZcashSighash.Verifier.BlockCommitment
+public import ZcashSighash.Verifier.Parse

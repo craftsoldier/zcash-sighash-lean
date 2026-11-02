@@ -20,8 +20,8 @@ structure Script where
   code : List Byte
 
 /-- `Script::write` (`src/address.rs`, lines 68–70). -/
-def Script.write (self : Script) (writer : StateWrite) : IoResult StateWrite :=
-  Vector.write writer self.code fun w e => w.writeAll [e]
+def Script.write {W : Type} [Write W] (self : Script) (writer : W) : IoResult W :=
+  Vector.write writer self.code fun w e => Write.writeAll w [e]
 
 /-- `OutPoint` (`src/bundle.rs`, lines 152–157). -/
 structure OutPoint where
@@ -29,9 +29,9 @@ structure OutPoint where
   n : BitVec 32
 
 /-- `OutPoint::write` (`src/bundle.rs`, lines 198–201). -/
-def OutPoint.write (self : OutPoint) (writer : StateWrite) : IoResult StateWrite := do
-  let writer ← writer.writeAll self.hash.toList
-  writer.writeAll (toLeBytes 4 self.n)
+def OutPoint.write {W : Type} [Write W] (self : OutPoint) (writer : W) : IoResult W := do
+  let writer ← Write.writeAll writer self.hash.toList
+  Write.writeAll writer (toLeBytes 4 self.n)
 
 /-- `OutPoint::is_null` (`src/bundle.rs`, lines 205–207): equal to `OutPoint::NULL` (lines
     163–166), the zero txid and `u32::MAX`. -/
@@ -51,8 +51,8 @@ structure TxOut where
   scriptPubkey : Script
 
 /-- `TxOut::write` (`src/bundle.rs`, lines 400–403). -/
-def TxOut.write (self : TxOut) (writer : StateWrite) : IoResult StateWrite := do
-  let writer ← writer.writeAll (toLeBytes 8 self.value)
+def TxOut.write {W : Type} [Write W] (self : TxOut) (writer : W) : IoResult W := do
+  let writer ← Write.writeAll writer (toLeBytes 8 self.value)
   self.scriptPubkey.write writer
 
 /-- What `TransparentAuthorizingContext` (`src/sighash.rs`, lines 126–137) gives: the amounts and
@@ -100,18 +100,18 @@ def SighashType.parse (hashType : Byte) : Option SighashType :=
 /-- `SighashType::encode` (lines 50–53). -/
 def SighashType.encode (self : SighashType) : Byte := self.byte
 
-/-- `SignableInput` (lines 160–166). Its `script_code` is never read by the version 5 and 6
-    digests. -/
+/-- `SignableInput` (lines 160–166). -/
 structure SignableInput where
   hashType : SighashType
   index : ℕ
+  scriptCode : Script
   scriptPubkey : Script
   value : BitVec 64
 
 /-- `SignableInput::from_parts` (lines 170–192): an error for an index out of range. -/
 def SignableInput.fromParts (bundle : Bundle) (hashType : SighashType) (index : ℕ)
-    (scriptPubkey : Script) (value : BitVec 64) : Except Unit SignableInput :=
+    (scriptCode scriptPubkey : Script) (value : BitVec 64) : Except Unit SignableInput :=
   if index ≥ bundle.vin.length then .error ()
-  else .ok ⟨hashType, index, scriptPubkey, value⟩
+  else .ok ⟨hashType, index, scriptCode, scriptPubkey, value⟩
 
 end ZcashSighash.Verifier.Transparent

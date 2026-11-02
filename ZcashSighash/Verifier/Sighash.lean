@@ -1,6 +1,6 @@
 /-
 `zcash_primitives` 0.31.0's version 5 and 6 signature digests (`src/transaction/sighash_v5.rs`,
-`sighash_v6.rs`, `sighash.rs`). Version 4 and earlier (ZIP 143, ZIP 243) are out of scope.
+`sighash_v6.rs`, `sighash.rs`). Versions 3 and 4 (ZIP 143, ZIP 243) are in `SighashV4.lean`.
 -/
 module
 

@@ -32,6 +32,12 @@ theorem writeAll_absorbed (p : Bytes 16) (x b : List Byte) :
     (absorbed p x).writeAll b = .ok (absorbed p (x ++ b)) := by
   simp [StateWrite.writeAll, absorbed, Blake2b.State.update]
 
+/-- `writeAll_absorbed` through the `Write` class, as the writers generic over their output
+    (`Vector::write`, `OutPoint::write`) call it. -/
+theorem classWrite_absorbed (p : Bytes 16) (x b : List Byte) :
+    Write.writeAll (absorbed p x) b = .ok (absorbed p (x ++ b)) :=
+  writeAll_absorbed p x b
+
 /-- Finalizing a state that has absorbed `x` gives the specification's BLAKE2b-256 of `x`. -/
 theorem finalize_absorbed (p : Bytes 16) (x : List Byte) :
     (absorbed p x).finalize = (blake2b256 p x).toList := rfl
@@ -58,7 +64,7 @@ theorem writeUnbounded_absorbed (p : Bytes 16) (x : List Byte) (v : BitVec 64) :
   unfold CompactSize.writeUnbounded Spec.compactSize
   dsimp only
   split_ifs <;>
-    simp [writeAll_absorbed, toLeBytes, Spec.I2LEOSP, List.range_succ, bind, Except.bind] <;>
+    simp [classWrite_absorbed, toLeBytes, Spec.I2LEOSP, List.range_succ, bind, Except.bind] <;>
     rw [Nat.mod_eq_of_lt (by omega)] <;> simp [BitVec.ofNat_toNat]
 
 /-- A `compactSize` up to `MAX_COMPACT_SIZE` is written as the specification encodes it. -/
@@ -100,13 +106,13 @@ theorem Script.write_absorbed (s : Transparent.Script) (p : Bytes 16) (x : List 
     s.write (absorbed p x) = .ok (absorbed p (x ++ Spec.script s.code)) := by
   simp only [Transparent.Script.write, Vector.write, compactSizeWrite_absorbed p x _ hs, bind,
     Except.bind]
-  rw [foldlM_absorbed s.code p _ (fun e => [e]) _ fun e _ y => writeAll_absorbed p y [e]]
+  rw [foldlM_absorbed s.code p _ (fun e => [e]) _ fun e _ y => classWrite_absorbed p y [e]]
   simp [Spec.script]
 
 /-- An outpoint is written as its field encoding: the 32-byte hash, then the `uint32` index. -/
 theorem OutPoint.write_absorbed (o : Transparent.OutPoint) (p : Bytes 16) (x : List Byte) :
     o.write (absorbed p x) = .ok (absorbed p (x ++ (o.hash.toList ++ Spec.u32 o.n))) := by
-  simp [Transparent.OutPoint.write, writeAll_absorbed, bind, Except.bind, toLeBytes_u32]
+  simp [Transparent.OutPoint.write, classWrite_absorbed, bind, Except.bind, toLeBytes_u32]
 
 /-- An output whose script fits in a `compactSize` is written as its field encoding: the
     `int64` value, then the script. -/
@@ -114,7 +120,7 @@ theorem TxOut.write_absorbed (o : Transparent.TxOut) (p : Bytes 16) (x : List By
     (hs : o.scriptPubkey.code.length ≤ MAX_COMPACT_SIZE) :
     o.write (absorbed p x) =
       .ok (absorbed p (x ++ (Spec.i64 o.value ++ Spec.script o.scriptPubkey.code))) := by
-  simp [Transparent.TxOut.write, writeAll_absorbed, bind, Except.bind, toLeBytes_i64,
+  simp [Transparent.TxOut.write, classWrite_absorbed, bind, Except.bind, toLeBytes_i64,
     Script.write_absorbed _ _ _ hs]
 
 /-- `self` with `b` absorbed. -/

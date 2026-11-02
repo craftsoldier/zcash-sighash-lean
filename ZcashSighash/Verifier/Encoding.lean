@@ -46,6 +46,17 @@ structure StateWrite where
 def StateWrite.writeAll (self : StateWrite) (buf : List Byte) : IoResult StateWrite :=
   .ok ⟨self.state.update (buf.map (·.toNat))⟩
 
+/-- `corez::io::Write`, through `write_all`, all the digests call. -/
+class Write (W : Type) where
+  writeAll : W → List Byte → IoResult W
+
+instance : Write StateWrite := ⟨StateWrite.writeAll⟩
+
+/-- `Vec<u8>`: `write_all` extends it. -/
+abbrev VecU8 := List Byte
+
+instance : Write VecU8 := ⟨fun v buf => .ok (v ++ buf)⟩
+
 /-- `StateWrite::finalize` (`src/encoding.rs`, lines 69–71), as bytes. -/
 def StateWrite.finalize (self : StateWrite) : Blake2bHash :=
   self.state.finalize.map (BitVec.ofNat 8)
@@ -71,36 +82,36 @@ def hasher (personal : Bytes 16) : Option StateWrite := do
 def MAX_COMPACT_SIZE : ℕ := 0x02000000
 
 /-- `CompactSize::write_unbounded` (`src/lib.rs`, lines 129–145). -/
-def CompactSize.writeUnbounded (writer : StateWrite) (value : BitVec 64) :
-    IoResult StateWrite :=
+def CompactSize.writeUnbounded {W : Type} [Write W] (writer : W) (value : BitVec 64) :
+    IoResult W :=
   let n := value.toNat
-  if n < 253 then writer.writeAll [BitVec.ofNat 8 n]
+  if n < 253 then Write.writeAll writer [BitVec.ofNat 8 n]
   else if n ≤ 0xFFFF then do
-    let writer ← writer.writeAll [253]
-    writer.writeAll (toLeBytes 2 (BitVec.ofNat 16 n))
+    let writer ← Write.writeAll writer [253]
+    Write.writeAll writer (toLeBytes 2 (BitVec.ofNat 16 n))
   else if n ≤ 0xFFFFFFFF then do
-    let writer ← writer.writeAll [254]
-    writer.writeAll (toLeBytes 4 (BitVec.ofNat 32 n))
+    let writer ← Write.writeAll writer [254]
+    Write.writeAll writer (toLeBytes 4 (BitVec.ofNat 32 n))
   else do
-    let writer ← writer.writeAll [255]
-    writer.writeAll (toLeBytes 8 value)
+    let writer ← Write.writeAll writer [255]
+    Write.writeAll writer (toLeBytes 8 value)
 
 /-- `CompactSize::write` (`src/lib.rs`, lines 114–122): an error above `MAX_COMPACT_SIZE`. A
     `usize` fits in a `u64`, so `size as u64` keeps `size`. -/
-def CompactSize.write (writer : StateWrite) (size : ℕ) : IoResult StateWrite :=
+def CompactSize.write {W : Type} [Write W] (writer : W) (size : ℕ) : IoResult W :=
   if size > MAX_COMPACT_SIZE then .error ()
   else CompactSize.writeUnbounded writer (BitVec.ofNat 64 size)
 
 /-- `Vector::write` (`src/lib.rs`, lines 199–204), through `Vector::write_sized` (lines
     223–233): the length, then each element. -/
-def Vector.write {E : Type} (writer : StateWrite) (vec : List E)
-    (func : StateWrite → E → IoResult StateWrite) : IoResult StateWrite := do
+def Vector.write {W E : Type} [Write W] (writer : W) (vec : List E)
+    (func : W → E → IoResult W) : IoResult W := do
   let writer ← CompactSize.write writer vec.length
   vec.foldlM func writer
 
 /-- `Array::write` (`src/lib.rs`, lines 287–297): each element. -/
-def Array.write {E : Type} (writer : StateWrite) (vec : List E)
-    (func : StateWrite → E → IoResult StateWrite) : IoResult StateWrite :=
+def Array.write {W E : Type} (writer : W) (vec : List E) (func : W → E → IoResult W) :
+    IoResult W :=
   vec.foldlM func writer
 
 end ZcashSighash.Verifier

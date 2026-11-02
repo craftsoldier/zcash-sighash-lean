@@ -17,9 +17,10 @@ commit.
 
 `ZcashSighash/Verifier/` transcribes, statement by statement, the code that computes these
 digests in `zcash_primitives` 0.31.0 and the crates it calls (`zcash_transparent` 0.11.0,
-`zcash_encoding` 0.5.0, `orchard` 0.16.0, `sapling-crypto` 0.9.0); each definition cites the
-lines it transcribes, and CI checks each crate against its crates.io checksum. The transcription
-gives the same twelve transactions' digests (`ZcashSighash/Tests/Verifier.lean`).
+`zcash_encoding` 0.5.0, `orchard` 0.16.0, `sapling-crypto` 0.9.0), versions 3 to 6; each
+definition cites the lines it transcribes, and CI checks each crate against its crates.io
+checksum. The transcription gives the same thirty-two transactions' digests
+(`ZcashSighash/Tests/Verifier.lean`).
 
 `ZcashSighash/Proofs/Verifier.lean` proves that, with BLAKE2b-256, the transcription computes
 the specification's digests for every version 5 and 6 transaction: `txid_eq` (`to_txid`),

@@ -4,9 +4,10 @@ The transcribed `zcash_primitives` on ZIP 244's test vectors, as its own test do
 `auth_commitment`, and the signature hash of a shielded input and, under each hash type
 `SighashType::parse` accepts, of the vector's transparent input. Where the vector has no
 `SIGHASH_SINGLE` digest, the crate still computes one, as its test skips it. Likewise the two
-version 6 transactions' digests.
+version 6 transactions' digests, and `v4_signature_hash` on ZIP 143's and ZIP 243's vectors
+(`zip_0143`, `zip_0243`, lines 1084–1148).
 -/
-import ZcashSighash.Verifier.Sighash
+import ZcashSighash.Verifier.SighashV4
 import ZcashSighash.Tests.Spec
 
 namespace ZcashSighash.Tests
@@ -22,6 +23,7 @@ def toTransactionData (tx : Spec.Transaction) : TransactionData where
   consensusBranchId := tx.header.consensusBranchId
   lockTime := tx.header.lockTime
   expiryHeight := tx.header.expiryHeight
+  sproutBundle := none
   transparentBundle :=
     if tx.transparent.vin = [] ∧ tx.transparent.vout = [] then none
     else some
@@ -73,6 +75,7 @@ def checkVerifier (v : Zip244Vector) : Bool :=
           | some hashType =>
             match Transparent.SignableInput.fromParts bundle hashType i
                 (bundle.authorization.inputScriptpubkeys.getD i ⟨[]⟩)
+                (bundle.authorization.inputScriptpubkeys.getD i ⟨[]⟩)
                 (bundle.authorization.inputAmounts.getD i 0) with
             | .error _ => false
             | .ok input =>
@@ -101,5 +104,64 @@ def checkVerifierV6 (v : V6Vector) : Bool :=
   | _, _ => false
 
 #guard v6Vectors.map checkVerifierV6 = [true, true]
+
+/-- A decoded version 3 or 4 transaction as `Transaction::read` holds it. -/
+def legacyToTransactionData (tx : Spec.LegacyTransaction) (v4 : Bool) : TransactionData where
+  version := if v4 then .v4 else .v3
+  consensusBranchId := tx.header.consensusBranchId
+  lockTime := tx.header.lockTime
+  expiryHeight := tx.header.expiryHeight
+  sproutBundle := if tx.joinSplits = [] then none else some
+    { joinsplits := tx.joinSplits.map fun js =>
+        { vpubOld := js.vpubOld, vpubNew := js.vpubNew, anchor := js.anchor
+          nullifiers := js.nullifiers, commitments := js.commitments
+          ephemeralKey := js.ephemeralKey, randomSeed := js.randomSeed, macs := js.macs
+          proof := if h : js.zkproof.length = 192 then .groth ⟨js.zkproof, h⟩
+            else .phgr ⟨js.zkproof.take 296 ++ List.replicate (296 - js.zkproof.length) 0,
+              by simp; omega⟩
+          ciphertexts := js.encCiphertexts }
+      joinsplitPubkey := tx.joinSplitPubKey, joinsplitSig := List.Vector.replicate 64 0 }
+  transparentBundle :=
+    if tx.transparent.vin = [] ∧ tx.transparent.vout = [] then none
+    else some
+      { vin := tx.transparent.vin.map fun i => ⟨⟨i.prevout.hash, i.prevout.n⟩, ⟨[]⟩, i.nSequence⟩
+        vout := tx.transparent.vout.map fun o => ⟨o.value, ⟨o.scriptPubKey⟩⟩
+        authorization := ⟨[], []⟩ }
+  saplingBundle :=
+    if tx.saplingSpends = [] ∧ tx.saplingOutputs = [] then none
+    else some
+      { shieldedSpends := tx.saplingSpends.map fun s =>
+          ⟨s.cv, s.anchor, s.nullifier, s.rk, s.zkproof, s.spendAuthSig⟩
+        shieldedOutputs := tx.saplingOutputs.map fun o =>
+          ⟨o.cv, o.cmu, o.ephemeralKey, o.encCiphertext, o.outCiphertext, o.zkproof⟩
+        valueBalance := tx.valueBalance
+        bindingSig := List.Vector.replicate 64 0 }
+  orchardBundle := none
+  ironwoodBundle := none
+
+/-- Whether `v4_signature_hash` gives the vector's signature digest. -/
+def checkLegacyVerifier (v : LegacyVector) : Bool :=
+  match (legacyDecoder (.ofNat _ v.branch.id) []).run' (hex v.tx) with
+  | none => false
+  | some stx =>
+    let tx := legacyToTransactionData stx (match stx.format with | .v3 => false | .v4 => true)
+    let input? : Option SignableInput := match v.transparentInput, tx.transparentBundle with
+      | none, _ => some .shielded
+      | some i, some bundle =>
+        match Transparent.SighashType.parse (.ofNat _ v.hashType) with
+        | none => none
+        | some hashType =>
+          match Transparent.SignableInput.fromParts bundle hashType i ⟨hex v.scriptCode⟩
+              ⟨hex v.scriptCode⟩ (.ofNat _ v.amount) with
+          | .ok input => some (.transparent input)
+          | .error _ => none
+      | some _, none => none
+    match input?, zip143Digests tx with
+    | some input, some digests => v4SignatureHash tx input digests == some (hex v.sighash)
+    | _, _ => false
+
+#guard zip143Vectors.map checkLegacyVerifier = List.replicate 10 true
+
+#guard zip243Vectors.map checkLegacyVerifier = List.replicate 10 true
 
 end ZcashSighash.Tests

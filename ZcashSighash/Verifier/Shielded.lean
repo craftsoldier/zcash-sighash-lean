@@ -1,5 +1,6 @@
 /-
-The Sapling bundle of `sapling-crypto` 0.9.0 (`src/bundle.rs`), the Orchard-shaped bundle of
+The Sprout bundle of `zcash_primitives` 0.31.0 (`src/transaction/components/sprout.rs`), the
+Sapling bundle of `sapling-crypto` 0.9.0 (`src/bundle.rs`), the Orchard-shaped bundle of
 `orchard` 0.16.0 (`src/bundle.rs`, `src/action.rs`, `src/note.rs`), and `orchard`'s digests of
 it (`src/bundle/commitments.rs`).
 
@@ -16,6 +17,55 @@ public import ZcashSighash.Verifier.Encoding
 namespace ZcashSighash.Verifier
 
 open Spec (Byte Bytes personal)
+
+namespace Sprout
+
+/-- `SproutProof` (`components/sprout.rs`, lines 36–39): BCTV14 (`PHGR`, 296 bytes, line 10) or
+    Groth16 (192 bytes, `components.rs`, line 9). -/
+inductive SproutProof where
+  | groth (p : Bytes 192)
+  | phgr (p : Bytes 296)
+
+/-- `JsDescription` (lines 51–62); a `ZatBalance` is its `i64`. -/
+structure JsDescription where
+  vpubOld : BitVec 64
+  vpubNew : BitVec 64
+  anchor : Bytes 32
+  nullifiers : Bytes 32 × Bytes 32
+  commitments : Bytes 32 × Bytes 32
+  ephemeralKey : Bytes 32
+  randomSeed : Bytes 32
+  macs : Bytes 32 × Bytes 32
+  proof : SproutProof
+  ciphertexts : Bytes 601 × Bytes 601
+
+/-- `JsDescription::write` (lines 168–189). -/
+def JsDescription.write {W : Type} [Write W] (self : JsDescription) (writer : W) :
+    IoResult W := do
+  let writer ← Write.writeAll writer (toLeBytes 8 self.vpubOld)
+  let writer ← Write.writeAll writer (toLeBytes 8 self.vpubNew)
+  let writer ← Write.writeAll writer self.anchor.toList
+  let writer ← Write.writeAll writer self.nullifiers.1.toList
+  let writer ← Write.writeAll writer self.nullifiers.2.toList
+  let writer ← Write.writeAll writer self.commitments.1.toList
+  let writer ← Write.writeAll writer self.commitments.2.toList
+  let writer ← Write.writeAll writer self.ephemeralKey.toList
+  let writer ← Write.writeAll writer self.randomSeed.toList
+  let writer ← Write.writeAll writer self.macs.1.toList
+  let writer ← Write.writeAll writer self.macs.2.toList
+  let writer ← match self.proof with
+    | .groth p => Write.writeAll writer p.toList
+    | .phgr p => Write.writeAll writer p.toList
+  let writer ← Write.writeAll writer self.ciphertexts.1.toList
+  Write.writeAll writer self.ciphertexts.2.toList
+
+/-- `Bundle` (lines 16–20). -/
+structure Bundle where
+  joinsplits : List JsDescription
+  joinsplitPubkey : Bytes 32
+  joinsplitSig : Bytes 64
+
+end Sprout
 
 namespace Sapling
 

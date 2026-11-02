@@ -50,7 +50,7 @@ theorem script_write_long (s : Transparent.Script) (hs : MAX_COMPACT_SIZE < s.co
 theorem transparentOutputsHash_long (o : Transparent.TxOut)
     (hs : MAX_COMPACT_SIZE < o.scriptPubkey.code.length) :
     transparentOutputsHash [o] = none := by
-  simp [transparentOutputsHash, hasher_eq, Transparent.TxOut.write, writeAll_absorbed,
+  simp [transparentOutputsHash, hasher_eq, Transparent.TxOut.write, classWrite_absorbed,
     script_write_long _ hs, unwrap, bind, Except.bind]
 
 /-- An Ironwood bundle in a version 5 transaction's Orchard slot panics. -/

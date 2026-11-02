@@ -47,14 +47,15 @@ def TxVersion.hasIronwood : TxVersion → Bool
   | .v6 => true
   | _ => false
 
-/-- `TransactionData<A>` (lines 339–352), without the Sprout bundle, which no version 5 or 6
-    digest reads, and the `zip233_amount` of an unstable configuration. -/
+/-- `TransactionData<A>` (lines 339–352), without the `zip233_amount` of an unstable
+    configuration. -/
 structure TransactionData where
   version : TxVersion
   consensusBranchId : BitVec 32
   lockTime : BitVec 32
   expiryHeight : BitVec 32
   transparentBundle : Option Transparent.Bundle
+  sproutBundle : Option Sprout.Bundle
   saplingBundle : Option Sapling.Bundle
   orchardBundle : Option Orchard.Bundle
   ironwoodBundle : Option Orchard.Bundle

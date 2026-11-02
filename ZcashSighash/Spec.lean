@@ -3,6 +3,7 @@
 
 * The version 5 transaction identifier, signature and auth digests (ZIP 244, §T, §S and §A).
 * Their version 6 forms (ZIP 229).
+* The version 3 and 4 signature digests (ZIP 143, ZIP 243).
 * The transparent signature check.
 
 The signature and identifier digests are first stated over the header, Sapling, Orchard and
@@ -526,6 +527,128 @@ def transparentSighash? (v : Version) (branchId : BitVec 32) (header sapling orc
 **Not stated in the specification.** §S.2a's "validation failure" makes only this check false,
 not the transaction invalid, as Zebra and Zakura do. -/
 def checkSig (verify : Digest → Bool) (digest? : Option Digest) : Bool := digest?.any verify
+
+end
+
+/-! ## Versions 3 and 4 (ZIP 143, ZIP 243) -/
+
+/-- A JoinSplit description. -/
+structure JoinSplit where
+  vpubOld : BitVec 64
+  vpubNew : BitVec 64
+  anchor : Bytes 32
+  nullifiers : Bytes 32 × Bytes 32
+  commitments : Bytes 32 × Bytes 32
+  ephemeralKey : Bytes 32
+  randomSeed : Bytes 32
+  macs : Bytes 32 × Bytes 32
+  /-- BCTV14's 296 bytes in version 3, Groth16's 192 in version 4. -/
+  zkproof : List Byte
+  encCiphertexts : Bytes 601 × Bytes 601
+
+/-- A JoinSplit description's encoding. -/
+def JoinSplit.encode (js : JoinSplit) : List Byte :=
+  i64 js.vpubOld ++ i64 js.vpubNew ++ js.anchor.toList ++ js.nullifiers.1.toList ++
+    js.nullifiers.2.toList ++ js.commitments.1.toList ++ js.commitments.2.toList ++
+    js.ephemeralKey.toList ++ js.randomSeed.toList ++ js.macs.1.toList ++ js.macs.2.toList ++
+    js.zkproof ++ js.encCiphertexts.1.toList ++ js.encCiphertexts.2.toList
+
+/-- A version 4 Sapling Spend, with its own anchor. -/
+structure SpendV4 where
+  cv : Bytes 32
+  anchor : Bytes 32
+  nullifier : Bytes 32
+  rk : Bytes 32
+  zkproof : Bytes 192
+  spendAuthSig : Bytes 64
+
+/-- A version 4 Sapling Spend's encoding, without `spendAuthSig`. -/
+def SpendV4.encode (s : SpendV4) : List Byte :=
+  s.cv.toList ++ s.anchor.toList ++ s.nullifier.toList ++ s.rk.toList ++ s.zkproof.toList
+
+/-- A Sapling Output's version 4 encoding. -/
+def SaplingOutput.encode (o : SaplingOutput) : List Byte :=
+  o.cv.toList ++ o.cmu.toList ++ o.ephemeralKey.toList ++ o.encCiphertext.toList ++
+    o.outCiphertext.toList ++ o.zkproof.toList
+
+/-- Version 3 (Overwinter, ZIP 143) or version 4 (Sapling, ZIP 243). -/
+inductive LegacyFormat where
+  | v3
+  | v4
+
+/-- A version 3 or 4 transaction. A version 3 one has no Sapling Spends or Outputs. -/
+structure LegacyTransaction where
+  format : LegacyFormat
+  header : Header
+  transparent : Transparent
+  joinSplits : List JoinSplit
+  joinSplitPubKey : Bytes 32
+  saplingSpends : List SpendV4
+  saplingOutputs : List SaplingOutput
+  valueBalance : BitVec 64
+
+/-- What a version 3 or 4 signature signs: a JoinSplit, Spend or binding signature, or the
+    transparent input `index`, with its hash type and `scriptCode`. -/
+inductive LegacyInput (t : Transparent) where
+  | shielded
+  | transparent (hashType : Byte) (index : Fin t.vin.length) (scriptCode : List Byte)
+
+section
+variable (H : Hash)
+
+/-- A digest, or 32 zero bytes. -/
+def digestOrZero (b : Bool) (d : Digest) : List Byte := if b then d.toList else List.replicate 32 0
+
+/-- The sighash type a signature over `input` uses.
+
+**Not stated in the specification.** ZIP 143 and ZIP 243 give no sighash type to a JoinSplit,
+Spend or binding signature; §4.10 hashes it as `SIGHASH_ALL`, as zcashd does. -/
+def LegacyInput.hashType {t : Transparent} : LegacyInput t → Byte
+  | .shielded => 0x01
+  | .transparent h _ _ => h
+
+/-- ZIP 143's digest; for version 4, ZIP 243's. The `ANYONECANPAY` flag is bit 7; `SINGLE` and
+    `NONE` are tested on the type masked with `0x1F`. -/
+def legacySignatureDigest (tx : LegacyTransaction) (input : LegacyInput tx.transparent) :
+    Digest :=
+  let t := tx.transparent
+  let h := input.hashType
+  let anyoneCanPay := h &&& 0x80 != 0
+  let single := h &&& 0x1f == 0x03
+  let noOutputs := h &&& 0x1f == 0x02
+  let v4 := match tx.format with | .v3 => false | .v4 => true
+  H ⟨(ascii "ZcashSigHash" 12).toList ++ u32 tx.header.consensusBranchId,
+      by simp [ascii, u32, I2LEOSP]⟩
+    (u32 tx.header.version ++ u32 tx.header.versionGroupId ++
+      digestOrZero (!anyoneCanPay)
+        (H (personal "ZcashPrevoutHash") (t.vin.flatMap (·.prevout.encode))) ++
+      digestOrZero (!anyoneCanPay && !single && !noOutputs)
+        (H (personal "ZcashSequencHash") (t.vin.flatMap (u32 ·.nSequence))) ++
+      (if !single && !noOutputs then
+        (H (personal "ZcashOutputsHash") (t.vout.flatMap TxOut.encode)).toList
+      else match input with
+        | .transparent _ i _ =>
+          if single then
+            match t.vout[i.val]? with
+            | some o => (H (personal "ZcashOutputsHash") o.encode).toList
+            | none => List.replicate 32 0
+          else List.replicate 32 0
+        | .shielded => List.replicate 32 0) ++
+      digestOrZero (!tx.joinSplits.isEmpty) (H (personal "ZcashJSplitsHash")
+        (tx.joinSplits.flatMap JoinSplit.encode ++ tx.joinSplitPubKey.toList)) ++
+      (if v4 then
+        digestOrZero (!tx.saplingSpends.isEmpty)
+          (H (personal "ZcashSSpendsHash") (tx.saplingSpends.flatMap SpendV4.encode)) ++
+        digestOrZero (!tx.saplingOutputs.isEmpty)
+          (H (personal "ZcashSOutputHash") (tx.saplingOutputs.flatMap SaplingOutput.encode))
+      else []) ++
+      u32 tx.header.lockTime ++ u32 tx.header.expiryHeight ++
+      (if v4 then i64 tx.valueBalance else []) ++ u32 (h.setWidth 32) ++
+      match input with
+      | .shielded => []
+      | .transparent _ i scriptCode =>
+        t.vin[i].prevout.encode ++ script scriptCode ++ i64 t.vin[i].spent.value ++
+          u32 t.vin[i].nSequence)
 
 end
 

@@ -3,11 +3,13 @@ The specification on ZIP 244's test vectors, with BLAKE2b: each transaction, dec
 version 5 encoding (ZIP 225), has the vector's identifier and auth digest, and its inputs the
 vector's signature digests. Where a vector has no `SIGHASH_SINGLE` digest, the input has no
 corresponding output, and the signature check finds no digest. Likewise two version 6
-transactions from the crates' tests, with the digests the tests give.
+transactions from the crates' tests, with the digests the tests give, and ZIP 143's and
+ZIP 243's vectors: each version 3 or 4 transaction (§7.1) has the vector's signature digest.
 -/
 import ZcashSighash.Spec
 import ZcashSighash.Verifier.Encoding
 import ZcashSighash.Tests.Zip244
+import ZcashSighash.Tests.Zip243
 
 namespace ZcashSighash.Tests
 
@@ -187,5 +189,69 @@ def checkV6 (v : V6Vector) : Bool :=
   v.sighashShielded.all fun d => (v.tx.signatureDigest blake2b256 .shielded).toList == hex d
 
 #guard v6Vectors.map checkV6 = [true, true]
+
+/-! ## Versions 3 and 4 -/
+
+/-- A version 3 or 4 transaction (§7.1), with the coins its inputs spend. -/
+def legacyDecoder (branchId : BitVec 32) (spent : List TxOut) : Decoder LegacyTransaction := do
+  let header ← uint 4
+  let format : LegacyFormat := if header % 2 ^ 31 = 3 then .v3 else .v4
+  let groupId ← uint 4
+  let vin ← many (← compactSize) do
+    pure (← vec 32, BitVec.ofNat 32 (← uint 4), ← script, BitVec.ofNat 32 (← uint 4))
+  let vout ← many (← compactSize) do
+    pure ({ value := .ofNat _ (← uint 8), scriptPubKey := ← script } : TxOut)
+  let lockTime ← uint 4
+  let expiry ← uint 4
+  let v4 := match format with | .v3 => false | .v4 => true
+  let valueBalance ← if v4 then BitVec.ofNat 64 <$> uint 8 else pure 0
+  let spends ← if v4 then many (← compactSize) do
+      pure (⟨← vec 32, ← vec 32, ← vec 32, ← vec 32, ← vec 192, ← vec 64⟩ : SpendV4)
+    else pure []
+  let outputs ← if v4 then many (← compactSize) do
+      pure (⟨← vec 32, ← vec 32, ← vec 32, ← vec 580, ← vec 80, ← vec 192⟩ : SaplingOutput)
+    else pure []
+  let joinSplits ← many (← compactSize) do
+    let vpubOld ← uint 8
+    let vpubNew ← uint 8
+    let anchor ← vec 32
+    let nullifiers := (← vec 32, ← vec 32)
+    let commitments := (← vec 32, ← vec 32)
+    let ephemeralKey ← vec 32
+    let randomSeed ← vec 32
+    let macs := (← vec 32, ← vec 32)
+    let zkproof ← bytes (if v4 then 192 else 296)
+    let encCiphertexts := (← vec 601, ← vec 601)
+    pure (⟨.ofNat _ vpubOld, .ofNat _ vpubNew, anchor, nullifiers, commitments, ephemeralKey,
+      randomSeed, macs, zkproof, encCiphertexts⟩ : JoinSplit)
+  let joinSplitPubKey ← if joinSplits.isEmpty then pure (List.Vector.replicate 32 0) else vec 32
+  if !joinSplits.isEmpty then discard (bytes 64)
+  if v4 && !(spends.isEmpty && outputs.isEmpty) then discard (bytes 64)
+  if (← get) ≠ [] then failure
+  let txins := (vin.zip (spent ++ List.replicate vin.length (⟨0, []⟩ : TxOut))).map
+    fun ((hash, n, _, seq), coin) => (⟨⟨hash, n⟩, seq, coin⟩ : TxIn)
+  pure
+    ⟨format, ⟨.ofNat _ header, .ofNat _ groupId, branchId, .ofNat _ lockTime, .ofNat _ expiry⟩,
+      ⟨txins, vout⟩, joinSplits, joinSplitPubKey, spends, outputs, valueBalance⟩
+
+/-- Whether the specification gives the vector's signature digest. -/
+def checkLegacy (v : LegacyVector) : Bool :=
+  let spent : List TxOut := match v.transparentInput with
+    | none => []
+    | some i => List.replicate i ⟨0, []⟩ ++ [⟨.ofNat _ v.amount, []⟩]
+  match (legacyDecoder (.ofNat _ v.branch.id) spent).run' (hex v.tx) with
+  | none => false
+  | some tx =>
+    match v.transparentInput with
+    | none => (legacySignatureDigest blake2b256 tx .shielded).toList == hex v.sighash
+    | some i =>
+      if h : i < tx.transparent.vin.length then
+        (legacySignatureDigest blake2b256 tx
+          (.transparent (.ofNat _ v.hashType) ⟨i, h⟩ (hex v.scriptCode))).toList == hex v.sighash
+      else false
+
+#guard zip143Vectors.map checkLegacy = List.replicate 10 true
+
+#guard zip243Vectors.map checkLegacy = List.replicate 10 true
 
 end ZcashSighash.Tests

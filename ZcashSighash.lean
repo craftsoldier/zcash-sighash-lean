@@ -1,7 +1,8 @@
 /-
-# Zcash transaction digests (ZIP 244, ZIP 229): verified in Lean
+# Zcash transaction digests (ZIP 143, ZIP 243, ZIP 244, ZIP 229): verified in Lean
 
-* `Spec.lean`: the transaction digests and signature check as ZIP 244 and ZIP 229 define them.
+* `Spec.lean`: the transaction digests and signature check as ZIPs 143, 243, 244 and 229 define
+  them.
 * `Proofs/Spec.lean`: what the specification is meant to do, checked against what it says.
 * `Verifier/Blake2b.lean`: BLAKE2b (RFC 7693), with the `blake2b_simd` interface.
 * `Verifier/`: librustzcash's digests, transcribed statement by statement.

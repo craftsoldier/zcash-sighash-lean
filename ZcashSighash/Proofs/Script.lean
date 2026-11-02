@@ -27,6 +27,14 @@ theorem fromBits_byte (b : Byte) :
         anyoneCanPay := (b.setWidth 32 : BitVec 32) &&& 0x80 != 0
         rawBits := b.setWidth 32 } := rfl
 
+/-- The hash type `from_bits` reads from a signature's last byte keeps that byte. -/
+theorem rawBits_of_fromBits {b : Byte} {hashType : HashType}
+    (h : HashType.fromBits (b.setWidth 32) false = .ok hashType) :
+    hashType.rawBits = b.setWidth 32 := by
+  rw [fromBits_byte] at h
+  cases h
+  rfl
+
 /-- Zakura's flags for a hash type of the specification. -/
 def zHashType (h : Spec.HashType) : ZHashType := h.toByte.setWidth 32
 

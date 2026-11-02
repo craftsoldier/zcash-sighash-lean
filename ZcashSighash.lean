@@ -14,7 +14,7 @@
 * `Verifier/Script.lean`: Zakura's sighash callback and `zcash_script`'s signature check.
 * `Proofs/Script.lean`: the callback gives each signature check the specification's digest.
 * `Verifier/Native.lean`: Zakura's own digests, which its node validates blocks with.
-* `Proofs/Native.lean`: their constants are the digests of empty components.
+* `Proofs/Native.lean`: they compute the specification's digests, for versions 5 and 6.
 -/
 module
 

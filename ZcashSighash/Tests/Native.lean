@@ -4,6 +4,7 @@ transactions: each transaction's identifier and auth digest, its shielded signat
 its transparent input's signature digest under each hash type the vector gives one for.
 -/
 import ZcashSighash.Verifier.Native
+import ZcashSighash.Proofs.Native
 import ZcashSighash.Tests.Spec
 
 namespace ZcashSighash.Tests
@@ -58,16 +59,6 @@ where
 def previousOutputs (tx : Spec.Transaction) : List Native.Output :=
   tx.transparent.vin.map fun i => ⟨i.spent.value, i.spent.scriptPubKey⟩
 
-/-- The canonical hash type of a specification hash type. -/
-def canonical (h : HashType) : Native.CanonicalHashType :=
-  match h.base, h.anyoneCanPay with
-  | .all, false => .all
-  | .none, false => .none
-  | .single, false => .single
-  | .all, true => .allAnyoneCanPay
-  | .none, true => .noneAnyoneCanPay
-  | .single, true => .singleAnyoneCanPay
-
 /-- Whether Zakura's native code gives the vector's digests. -/
 def checkNative (v : Zip244Vector) : Bool :=
   match decode (hex v.tx) (v.amounts.zip v.scriptPubKeys |>.map
@@ -85,7 +76,7 @@ def checkNative (v : Zip244Vector) : Bool :=
       | none => true
       | some i => (hashTypes v).all fun (ht, expected) =>
         match expected with
-        | some e => cache.sighash (canonical ht) (some i) == some (hex e)
+        | some e => cache.sighash (.ofSpec ht) (some i) == some (hex e)
         -- No digest: `SIGHASH_SINGLE` without a corresponding output, which the callback
         -- refuses before calling the cache (`Proofs/Script.lean`).
         | none => !cache.hasCorrespondingOutput i

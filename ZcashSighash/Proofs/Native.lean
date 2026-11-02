@@ -4,11 +4,15 @@ specification's.
 
 First the thirteen digests of empty components the Rust writes in as constants: each is the
 BLAKE2b-256 hash of no bytes under its personalization, which the kernel checks by computing it.
+Then the transaction identifier (`txid_eq`), the auth digest (`authDigest_eq`), the signature
+digests (`sighash_eq`, `sighash_shielded_eq`), and, with Zakura's callback (`Proofs/Script.lean`),
+the whole signature check of a transparent input (`checkSig_native`).
 -/
 module
 
 public import ZcashSighash.Proofs.Verifier
 public import ZcashSighash.Verifier.Native
+public import ZcashSighash.Proofs.Script
 
 @[expose] public section
 
@@ -162,7 +166,8 @@ theorem hashOutputs_eq (outputs : List Output)
 
 /-- Flattening a `mapIdx` forgets the index when the flattened function does not use it. -/
 theorem flatMap_mapIdx {α β γ : Type} (l : List α) (f : ℕ → α → β) (g : β → List γ)
-    (h : α → List γ) (hg : ∀ i a, g (f i a) = h a) : (l.mapIdx f).flatMap g = l.flatMap h := by
+    (h : α → List γ) (hg : ∀ i a, g (f i a) = h a) :
+    (l.mapIdx f).flatMap g = l.flatMap h := by
   rw [List.flatMap_def, List.flatMap_def, map_mapIdx l f g h hg]
 
 /-- `hash_transparent_txid` is §T.2's digest, when the output scripts fit in a protocol
@@ -506,7 +511,418 @@ theorem authDigest_eq (cs : CoinbaseScript) (previousOutputs : List Output) (p :
       Orchard.Personalizations.toSpec, Parts.toSpec, Version.toSpec, Spec.Format.IsV6, Spec.node,
       Spec.orchardV5, Spec.orchardV6, Spec.ironwoodV6]
 
+/-! ## The signature digest cache -/
+
+/-- `hash_amounts` is §S.2c's digest of the previous outputs' values. -/
+theorem hashAmounts_eq (previousOutputs : List Output) :
+    hashAmounts previousOutputs = some (blake2b256 (personal "ZTxTrAmountsHash")
+      (previousOutputs.flatMap (Spec.i64 ·.value))).toList := by
+  simp only [hashAmounts, hasher_eq, Option.pure_def, Option.bind_eq_bind, Option.bind_some]
+  rw [forIn_yield _ _ _ (fun (a : Output) s => update s (toLeBytes 8 a.value))
+    (fun _ _ _ => rfl), foldl_update_absorbed]
+  simp [finalize_state_absorbed, toLeBytes_i64]
+
+/-- `hash_scriptpubkeys` is §S.2d's digest of the previous outputs' scripts, when they fit in a
+    protocol message. -/
+theorem hashScriptpubkeys_eq (previousOutputs : List Output)
+    (hk : ∀ o ∈ previousOutputs, o.lockScript.length ≤ MAX_PROTOCOL_MESSAGE_LEN) :
+    hashScriptpubkeys previousOutputs = some (blake2b256 (personal "ZTxTrScriptsHash")
+      (previousOutputs.flatMap (Spec.script ·.lockScript))).toList := by
+  simp only [hashScriptpubkeys, hasher_eq, Option.pure_def, Option.bind_eq_bind, Option.bind_some]
+  rw [forIn_yield _ _ _ (fun (a : Output) s => update s (Spec.script a.lockScript))
+    (fun a ha s => by simp [updateSerialized, serializeBytes_ok _ (hk a ha)]),
+    foldl_update_absorbed]
+  simp [finalize_state_absorbed]
+
+/-- `hash_txin` of a non-coinbase input is §S.2g's digest of it and the coin it spends. -/
+theorem hashTxin_eq (o : OutPoint) (u : List Byte) (q : BitVec 32) (prev : Output)
+    (hk : prev.lockScript.length ≤ MAX_PROTOCOL_MESSAGE_LEN) :
+    hashTxin (.prevOut o u q) prev = some (some (blake2b256 (personal "Zcash___TxInHash")
+      ((Input.prevOut o u q).prevoutSpec.encode ++ Spec.i64 prev.value ++
+        Spec.script prev.lockScript ++ Spec.u32 q)).toList) := by
+  simp [hashTxin, hasher_eq, updateSerialized, OutPoint.serialize, serializeBytes_ok _ hk,
+    update_absorbed, finalize_state_absorbed, Input.prevoutSpec, Spec.OutPoint.encode,
+    toLeBytes_u32, toLeBytes_i64]
+
+/-- With one previous output per input, the specification's spent coins are the previous
+    outputs. -/
+theorem spent_transparentSpec (inputs : List Input) (outputs previousOutputs : List Output)
+    (hlen : previousOutputs.length = inputs.length) :
+    (transparentSpec inputs outputs previousOutputs).vin.map (·.spent) =
+      previousOutputs.map Output.toSpec := by
+  apply List.ext_getElem (by simp [transparentSpec, hlen])
+  intro i h₁ h₂
+  simp [transparentSpec, List.getElem?_eq_getElem (by simpa using h₂)]
+
+/-- A `mapM` whose steps all succeed is a `map`. -/
+theorem mapM_some {α β : Type} (l : List α) (f : α → Option β) (g : α → β)
+    (h : ∀ a ∈ l, f a = some (g a)) : l.mapM f = some (l.map g) := by
+  induction l with
+  | nil => rfl
+  | cons a l ih =>
+    simp [List.mapM_cons, h a List.mem_cons_self,
+      ih fun b hb => h b (List.mem_cons_of_mem _ hb)]
+
+/-- Each input's `txin` digest, as `Zip244SighashCache::new` computes it: §S.2g's for a
+    non-coinbase input with a previous output, none otherwise. -/
+def txinDigest (previousOutputs : List Output) : Input × ℕ → Option Blake2bHash
+  | (.prevOut o u q, index) => (previousOutputs[index]?).map fun prev =>
+      (blake2b256 (personal "Zcash___TxInHash") ((Input.prevOut o u q).prevoutSpec.encode ++
+        Spec.i64 prev.value ++ Spec.script prev.lockScript ++ Spec.u32 q)).toList
+  | (.coinbase .., _) => none
+
+/-- What the cache needs of the transaction and its previous outputs: every script fits in a
+    protocol message. -/
+structure CacheFits (p : Parts) (previousOutputs : List Output) : Prop where
+  outputs : ∀ o ∈ p.outputs, o.lockScript.length ≤ MAX_PROTOCOL_MESSAGE_LEN
+  previous : ∀ o ∈ previousOutputs, o.lockScript.length ≤ MAX_PROTOCOL_MESSAGE_LEN
+
+/-- The cache of the specification's digests. -/
+def specCache (cs : CoinbaseScript) (p : Parts) (previousOutputs : List Output) :
+    Zip244SighashCache :=
+      { consensusBranchId := p.consensusBranchId
+        header := (Spec.headerDigest blake2b256 (p.toSpec cs previousOutputs).header).toList
+        transparentTxid := (Spec.transparentDigest blake2b256
+          (transparentSpec p.inputs p.outputs previousOutputs)).toList
+        prevouts := (blake2b256 (personal "ZTxIdPrevoutHash")
+          (p.inputs.flatMap (·.prevoutSpec.encode))).toList
+        amounts := (blake2b256 (personal "ZTxTrAmountsHash")
+          (previousOutputs.flatMap (Spec.i64 ·.value))).toList
+        scriptpubkeys := (blake2b256 (personal "ZTxTrScriptsHash")
+          (previousOutputs.flatMap (Spec.script ·.lockScript))).toList
+        sequence := (blake2b256 (personal "ZTxIdSequencHash")
+          (p.inputs.flatMap (Spec.u32 ·.sequence))).toList
+        outputs := (blake2b256 (personal "ZTxIdOutputsHash")
+          (p.outputs.flatMap (·.toSpec.encode))).toList
+        transparentOutputCount := p.outputs.length
+        singleOutputs := (p.outputs.take p.inputs.length).map fun o =>
+          (blake2b256 (personal "ZTxIdOutputsHash") o.toSpec.encode).toList
+        txins := p.inputs.zipIdx.map (txinDigest previousOutputs)
+        transparentBundlePresent := !p.inputs.isEmpty || !p.outputs.isEmpty
+        transparentIsCoinbaseOrHasNoInputs := isCoinbase p.inputs || p.inputs.isEmpty
+        sapling := (Spec.saplingDigest blake2b256 (p.version.toSpec p.ironwood)
+          ((p.sapling.map SaplingData.toSpec).getD emptySapling)).toList
+        orchard := (Spec.actionsDigest blake2b256 p.version.orchardFormat.personalizations.toSpec
+          (!p.version.orchardFormat.includesAnchorInTxidDigest)
+          ((p.orchard.map OrchardData.toSpec).getD emptyOrchard)).toList
+        ironwood := if p.version.hasIronwood then some (Spec.actionsDigest blake2b256
+          Format.ironwoodV6.personalizations.toSpec
+          (!Format.ironwoodV6.includesAnchorInTxidDigest)
+          ((p.ironwood.map OrchardData.toSpec).getD emptyOrchard)).toList else none }
+
+/-- `Zip244SighashCache::new` computes each digest the signature digests reuse, as the
+    specification's. -/
+theorem new_eq (cs : CoinbaseScript) (p : Parts) (previousOutputs : List Output)
+    (h : CacheFits p previousOutputs) :
+    Zip244SighashCache.new p previousOutputs = some (specCache cs p previousOutputs) := by
+  have hf : (p.version.toSpec p.ironwood).IsV6 = p.version.hasIronwood := by
+    cases p.version <;> rfl
+  have htx : hashTransparentTxidFromDigests (!p.inputs.isEmpty || !p.outputs.isEmpty)
+      (blake2b256 (personal "ZTxIdPrevoutHash") (p.inputs.flatMap (·.prevoutSpec.encode))).toList
+      (blake2b256 (personal "ZTxIdSequencHash") (p.inputs.flatMap (Spec.u32 ·.sequence))).toList
+      (blake2b256 (personal "ZTxIdOutputsHash") (p.outputs.flatMap (·.toSpec.encode))).toList =
+      some (Spec.transparentDigest blake2b256
+        (transparentSpec p.inputs p.outputs previousOutputs)).toList := by
+    by_cases he : p.inputs.isEmpty && p.outputs.isEmpty
+    · have hi : p.inputs = [] := by simpa using (Bool.and_eq_true_iff.mp he).1
+      have ho : p.outputs = [] := by simpa using (Bool.and_eq_true_iff.mp he).2
+      simp [hashTransparentTxidFromDigests, hi, ho, Spec.transparentDigest, transparentSpec,
+        EMPTY_TRANSPARENT_TXID_HASH_eq]
+    · have hbp : (!p.inputs.isEmpty || !p.outputs.isEmpty) = true := by
+        cases hi : p.inputs.isEmpty <;> cases ho : p.outputs.isEmpty <;> simp_all
+      rw [hbp, ← hashTransparentTxid_eq p.inputs p.outputs previousOutputs h.outputs]
+      simp [hashTransparentTxid, he, hashPrevouts_eq, hashSequence_eq,
+        hashOutputs_eq _ h.outputs]
+  have hsingle : (p.outputs.take p.inputs.length).mapM (fun o => hashOutputs [o]) =
+      some ((p.outputs.take p.inputs.length).map fun o =>
+        (blake2b256 (personal "ZTxIdOutputsHash") o.toSpec.encode).toList) :=
+    mapM_some _ _ _ fun o ho => by
+      simpa using hashOutputs_eq [o] (by simpa using h.outputs o (List.mem_of_mem_take ho))
+  simp only [Zip244SighashCache.new, hashPrevouts_eq, hashSequence_eq, hashOutputs_eq _ h.outputs,
+    hashHeader_eq cs previousOutputs, htx, hashAmounts_eq,
+    hashScriptpubkeys_eq _ h.previous, hsingle, hashSaplingTxid_eq p.sapling p.version _ hf,
+    hashBundleTxid_eq, Option.pure_def, Option.bind_eq_bind, Option.bind_some]
+  rw [mapM_some p.inputs.zipIdx _ (txinDigest previousOutputs)]
+  · cases hv : p.version <;> simp [Version.hasIronwood, specCache, hv]
+  · rintro ⟨input, index⟩ _
+    cases hp : previousOutputs[index]? with
+    | none => cases input <;> simp [txinDigest, hp]
+    | some prev =>
+      have hk := h.previous prev (List.mem_of_getElem? hp)
+      cases input with
+      | prevOut o u q => simp [txinDigest, hp, hashTxin_eq o u q prev hk]
+      | coinbase => simp [txinDigest, hashTxin]
+
+/-! ## The signature digest -/
+
+/-- Zakura's form of a hash type of the specification. -/
+def CanonicalHashType.ofSpec (h : Spec.HashType) : CanonicalHashType :=
+  match h.base, h.anyoneCanPay with
+  | .all, false => .all
+  | .none, false => .none
+  | .single, false => .single
+  | .all, true => .allAnyoneCanPay
+  | .none, true => .noneAnyoneCanPay
+  | .single, true => .singleAnyoneCanPay
+
+/-- No input that spends a coin has the null outpoint: Zakura parses an input whose outpoint
+    hash is zero as a coinbase input, or rejects it (`src/transparent/serialize.rs`,
+    lines 177–182). -/
+def NoNullPrevOut (inputs : List Input) : Prop :=
+  ∀ o u q, Input.prevOut o u q ∈ inputs → ¬(Input.prevOut o u q).prevoutSpec.IsNull
+
+/-- Zakura's coinbase test is §3.11's, when no input that spends a coin has the null
+    outpoint. -/
+theorem isCoinbase_eq (inputs : List Input) (outputs previousOutputs : List Output)
+    (hnull : NoNullPrevOut inputs) :
+    (isCoinbase inputs || inputs.isEmpty) =
+      decide ((transparentSpec inputs outputs previousOutputs).IsCoinbase ∨
+        (transparentSpec inputs outputs previousOutputs).vin = []) := by
+  rcases inputs with _ | ⟨x, _ | ⟨y, l⟩⟩
+  · simp [transparentSpec]
+  · cases x with
+    | prevOut o u q =>
+      have := hnull o u q (by simp)
+      simp_all [isCoinbase, transparentSpec, Spec.Transparent.IsCoinbase]
+    | coinbase =>
+      simp [isCoinbase, transparentSpec, Spec.Transparent.IsCoinbase, Input.prevoutSpec,
+        Spec.OutPoint.IsNull]
+  · simp [isCoinbase, transparentSpec, Spec.Transparent.IsCoinbase]
+
+/-- The inputs' fields the signature digests hash, as Zakura's inputs and previous outputs, with
+    one previous output per input. -/
+theorem transparentSpec_flatMaps (inputs : List Input) (outputs previousOutputs : List Output)
+    (hlen : previousOutputs.length = inputs.length) :
+    (transparentSpec inputs outputs previousOutputs).vin.flatMap (·.prevout.encode) =
+        inputs.flatMap (·.prevoutSpec.encode) ∧
+      (transparentSpec inputs outputs previousOutputs).vin.flatMap (Spec.u32 ·.nSequence) =
+        inputs.flatMap (Spec.u32 ·.sequence) ∧
+      (transparentSpec inputs outputs previousOutputs).vin.flatMap (Spec.i64 ·.spent.value) =
+        previousOutputs.flatMap (Spec.i64 ·.value) ∧
+      (transparentSpec inputs outputs previousOutputs).vin.flatMap
+          (Spec.script ·.spent.scriptPubKey) =
+        previousOutputs.flatMap (Spec.script ·.lockScript) ∧
+      (transparentSpec inputs outputs previousOutputs).vout.flatMap Spec.TxOut.encode =
+        outputs.flatMap (·.toSpec.encode) := by
+  have hs := spent_transparentSpec inputs outputs previousOutputs hlen
+  refine ⟨flatMap_mapIdx _ _ _ _ fun _ _ => rfl, flatMap_mapIdx _ _ _ _ fun _ _ => rfl, ?_, ?_,
+    by simp [transparentSpec, List.flatMap_map]⟩
+  · simpa [List.flatMap_map, Output.toSpec, Function.comp_def] using
+      congrArg (List.flatMap fun o : Spec.TxOut => Spec.i64 o.value) hs
+  · simpa [List.flatMap_map, Output.toSpec, Function.comp_def] using
+      congrArg (List.flatMap fun o : Spec.TxOut => Spec.script o.scriptPubKey) hs
+
+/-- For a Sapling Spend or an Orchard Action, `transparent_sig_digest` is §S.2's digest, whatever
+    hash type it is passed. -/
+theorem transparentSigDigest_shielded (cs : CoinbaseScript) (p : Parts)
+    (previousOutputs : List Output) (hlen : previousOutputs.length = p.inputs.length)
+    (hnull : NoNullPrevOut p.inputs)
+    (hashType : CanonicalHashType) :
+    (specCache cs p previousOutputs).transparentSigDigest hashType none =
+      some (Spec.transparentSigDigest blake2b256
+        (t := (p.toSpec cs previousOutputs).transparent) .shielded).toList := by
+  obtain ⟨hp, hs, ha, hc, ho⟩ :=
+    transparentSpec_flatMaps p.inputs p.outputs previousOutputs hlen
+  have hcb := isCoinbase_eq p.inputs p.outputs previousOutputs hnull
+  by_cases hk : (transparentSpec p.inputs p.outputs previousOutputs).IsCoinbase ∨
+      (transparentSpec p.inputs p.outputs previousOutputs).vin = []
+  · simp_all [Zip244SighashCache.transparentSigDigest, Spec.transparentSigDigest, specCache,
+      Parts.toSpec]
+  · have hne : p.inputs ≠ [] := by rintro h; simp [transparentSpec, h] at hk
+    simp_all [Zip244SighashCache.transparentSigDigest, Spec.transparentSigDigest, specCache,
+      Parts.toSpec, hasher_eq, update_absorbed, finalize_state_absorbed, CanonicalHashType.encode,
+      CanonicalHashType.anyoneCanPay, Spec.SignableInput.hashType, Spec.HashType.toByte,
+      Spec.prevoutsSigDigest, Spec.amountsSigDigest, Spec.scriptPubKeysSigDigest,
+      Spec.sequenceSigDigest, Spec.outputsSigDigest, Spec.txinSigDigest, Spec.prevoutsDigest,
+      Spec.sequenceDigest, Spec.outputsDigest]
+
+/-- For a transparent input that spends a coin, under a hash type that satisfies §S.2a,
+    `transparent_sig_digest` is §S.2's digest. -/
+theorem transparentSigDigest_transparent (cs : CoinbaseScript) (p : Parts)
+    (previousOutputs : List Output) (hlen : previousOutputs.length = p.inputs.length)
+    (hnull : NoNullPrevOut p.inputs)
+    (ht : Spec.HashType) (i : Fin (p.toSpec cs previousOutputs).transparent.vin.length)
+    (o : OutPoint) (u : List Byte) (q : BitVec 32)
+    (hin : p.inputs[i.val]? = some (.prevOut o u q))
+    (hr : (Spec.SignableInput.transparent ht i).Restrictions) :
+    (specCache cs p previousOutputs).transparentSigDigest (.ofSpec ht) (some i.val) =
+      some (Spec.transparentSigDigest blake2b256 (.transparent ht i)).toList := by
+  obtain ⟨hp, hs, ha, hc, ho⟩ :=
+    transparentSpec_flatMaps p.inputs p.outputs previousOutputs hlen
+  have hcb := isCoinbase_eq p.inputs p.outputs previousOutputs hnull
+  have hil : i.val < p.inputs.length := by simpa [Parts.toSpec, transparentSpec] using i.isLt
+  have hin' : p.inputs[i.val] = .prevOut o u q := by simpa [hil] using hin
+  have hprev : previousOutputs[i.val]? = some previousOutputs[i.val] :=
+    List.getElem?_eq_getElem (by omega)
+  have hvin : (p.toSpec cs previousOutputs).transparent.vin[i] =
+      ⟨(Input.prevOut o u q).prevoutSpec, q, previousOutputs[i.val].toSpec⟩ := by
+    show (transparentSpec p.inputs p.outputs previousOutputs).vin[i.val]'i.isLt = _
+    simp [transparentSpec, hin', hprev, Input.sequence]
+  have htxin : ((specCache cs p previousOutputs).txins[i.val]?).join =
+      some (Spec.txinSigDigest blake2b256 (t := (p.toSpec cs previousOutputs).transparent)
+        (.transparent ht i)).toList := by
+    simp only [Spec.txinSigDigest, hvin]
+    simp [specCache, List.getElem?_zipIdx, hin, txinDigest, hprev, Output.toSpec]
+  have hso : ht.base = .single → (specCache cs p previousOutputs).singleOutputs[i.val]? =
+      some (Spec.outputsSigDigest blake2b256 (t := (p.toSpec cs previousOutputs).transparent)
+        (.transparent ht i)).toList := by
+    intro hb
+    have hol : i.val < p.outputs.length := by simpa [Parts.toSpec, transparentSpec] using hr hb
+    simp [specCache, hil, hol, Spec.outputsSigDigest, Spec.SignableInput.hashType, hb,
+      Parts.toSpec, transparentSpec]
+  by_cases hk : (transparentSpec p.inputs p.outputs previousOutputs).IsCoinbase ∨
+      (transparentSpec p.inputs p.outputs previousOutputs).vin = []
+  · simp_all [Zip244SighashCache.transparentSigDigest, Spec.transparentSigDigest, specCache,
+      Parts.toSpec]
+  · have hne : p.inputs ≠ [] := by rintro h; simp [h] at hil
+    have hcb' : isCoinbase p.inputs = false := by simpa [hk, hne] using hcb
+    rcases ht with ⟨_ | _ | _, _ | _⟩ <;>
+      simp only [Zip244SighashCache.transparentSigDigest, Spec.transparentSigDigest, htxin] <;>
+      (try simp only [hso rfl]) <;>
+      simp [specCache, Parts.toSpec, hk, hne, hcb', hasher_eq, update_absorbed,
+        finalize_state_absorbed, CanonicalHashType.ofSpec, CanonicalHashType.encode,
+        CanonicalHashType.anyoneCanPay, CanonicalHashType.isSingle, CanonicalHashType.isNone,
+        Spec.SignableInput.hashType, Spec.HashType.toByte, Spec.prevoutsSigDigest,
+        Spec.amountsSigDigest, Spec.scriptPubKeysSigDigest, Spec.sequenceSigDigest,
+        Spec.outputsSigDigest, Spec.prevoutsDigest, Spec.sequenceDigest, Spec.outputsDigest, hp,
+        hs, ha, hc, ho, hashPrevouts_eq, hashAmounts_eq, hashScriptpubkeys_eq, hashSequence_eq,
+        hashOutputs_eq [] (by simp)]
+
+/-- Given the specification's transparent signature digest, `sighash` gives the specification's
+    signature digest. -/
+theorem sighash_of_transparent (cs : CoinbaseScript) (p : Parts) (previousOutputs : List Output)
+    (hashType : CanonicalHashType) (inputIndex : Option ℕ)
+    (input : Spec.SignableInput (p.toSpec cs previousOutputs).transparent)
+    (ht : (specCache cs p previousOutputs).transparentSigDigest hashType inputIndex =
+      some (Spec.transparentSigDigest blake2b256 input).toList) :
+    (specCache cs p previousOutputs).sighash hashType inputIndex =
+      some ((p.toSpec cs previousOutputs).signatureDigest blake2b256 input).toList := by
+  simp only [Zip244SighashCache.sighash, ht, Option.bind_eq_bind, Option.bind_some,
+    combineTxidDigests_eq]
+  rcases p with ⟨_ | _, br, lt, eh, ins, outs, sap, orc, iw⟩ <;>
+    simp [specCache, Version.hasIronwood, Version.orchardFormat,
+      Format.includesAnchorInTxidDigest, Format.personalizations, Orchard.Personalizations.toSpec,
+      Spec.Transaction.signatureDigest, Spec.signatureDigest, Spec.Transaction.version,
+      Spec.Transaction.orchardDigest, Parts.toSpec, Version.toSpec, Spec.Format.IsV6, Spec.node,
+      Spec.orchardV5, Spec.orchardV6, Spec.ironwoodV6]
+
+/-- **Zakura's node computes the specification's signature digest of a transparent input**
+    (ZIP 244; for version 6, ZIP 229), for an input that spends a coin, under a hash type that
+    satisfies §S.2a, as the callback checks before it asks (`calculateSighash_v5`). The other
+    hypotheses are what parsing and the coin lookup give: scripts that fit in a protocol message,
+    one previous output per input, and no input spending a coin with the null outpoint. -/
+theorem sighash_eq (cs : CoinbaseScript) (p : Parts) (previousOutputs : List Output)
+    (h : CacheFits p previousOutputs) (hlen : previousOutputs.length = p.inputs.length)
+    (hnull : NoNullPrevOut p.inputs)
+    (ht : Spec.HashType) (i : Fin (p.toSpec cs previousOutputs).transparent.vin.length)
+    (o : OutPoint) (u : List Byte) (q : BitVec 32)
+    (hin : p.inputs[i.val]? = some (.prevOut o u q))
+    (hr : (Spec.SignableInput.transparent ht i).Restrictions) :
+    (Zip244SighashCache.new p previousOutputs).bind (·.sighash (.ofSpec ht) (some i.val)) =
+      some ((p.toSpec cs previousOutputs).signatureDigest blake2b256
+        (.transparent ht i)).toList := by
+  rw [new_eq cs p previousOutputs h, Option.bind_some]
+  exact sighash_of_transparent cs p previousOutputs _ _ _
+    (transparentSigDigest_transparent cs p previousOutputs hlen hnull ht i o u q hin hr)
+
+/-- **Zakura's node computes the specification's signature digest of a Sapling Spend or an
+    Orchard Action**, under the same hypotheses, whatever hash type it is passed. -/
+theorem sighash_shielded_eq (cs : CoinbaseScript) (p : Parts) (previousOutputs : List Output)
+    (h : CacheFits p previousOutputs) (hlen : previousOutputs.length = p.inputs.length)
+    (hnull : NoNullPrevOut p.inputs)
+    (hashType : CanonicalHashType) :
+    (Zip244SighashCache.new p previousOutputs).bind (·.sighash hashType none) =
+      some ((p.toSpec cs previousOutputs).signatureDigest blake2b256 .shielded).toList := by
+  rw [new_eq cs p previousOutputs h, Option.bind_some]
+  exact sighash_of_transparent cs p previousOutputs _ _ _
+    (transparentSigDigest_shielded cs p previousOutputs hlen hnull hashType)
+
+/-! ## The signature check -/
+
+/-- `CanonicalHashType::try_from` takes each hash type of the specification to Zakura's form of
+    it. -/
+theorem tryFrom_zHashType (h : Spec.HashType) :
+    CanonicalHashType.tryFrom (Script.zHashType h) = some (.ofSpec h) := by
+  rcases h with ⟨_ | _ | _, _ | _⟩ <;> decide
+
+/-- `SigHasher::sighash`, on Zakura's cache, gives a transparent input that spends a coin the
+    specification's signature digest under each hash type that satisfies §S.2a: what the
+    callback assumes of it (`calculateSighash_v5`). -/
+theorem sigHasherSighash_eq (cs : CoinbaseScript) (p : Parts) (previousOutputs : List Output)
+    (hlen : previousOutputs.length = p.inputs.length) (hnull : NoNullPrevOut p.inputs)
+    (i : Fin (p.toSpec cs previousOutputs).transparent.vin.length)
+    (o : OutPoint) (u : List Byte) (q : BitVec 32)
+    (hin : p.inputs[i.val]? = some (.prevOut o u q)) (scriptCode : List Byte)
+    (ht : Spec.HashType) (hr : (Spec.SignableInput.transparent ht i).Restrictions) :
+    sigHasherSighash (specCache cs p previousOutputs) (Script.zHashType ht)
+        (some (i.val, scriptCode)) =
+      some ((p.toSpec cs previousOutputs).signatureDigest blake2b256
+        (.transparent ht i)).toList := by
+  have hg : (CanonicalHashType.ofSpec ht).isSingle = false ∨
+      (specCache cs p previousOutputs).hasCorrespondingOutput i.val = true := by
+    rcases ht with ⟨_ | _ | _, _ | _⟩ <;>
+      simp_all [CanonicalHashType.ofSpec, CanonicalHashType.isSingle,
+        Zip244SighashCache.hasCorrespondingOutput, specCache, Parts.toSpec, transparentSpec,
+        Spec.SignableInput.Restrictions]
+  simp [sigHasherSighash, tryFrom_zHashType, hg, sighash_of_transparent cs p previousOutputs _ _ _
+    (transparentSigDigest_transparent cs p previousOutputs hlen hnull ht i o u q hin hr)]
+
+/-- **Zakura checks a version 5 or 6 transparent signature as §S says.** `zcash_script`'s
+    `check_sig`, with Zakura's callback over the `SigHasher` its node builds from the
+    transaction and the coins it spends, is the public key's validity and the specification's
+    `checkSig` on the specification's `transparentSighash?`: the digest of the input under the
+    hash type the signature's last byte encodes, or no digest (a failed check) where §S.2a says
+    validation fails. It never panics. The hypotheses are those of `sighash_eq`. -/
+theorem checkSig_native (cs : CoinbaseScript) (p : Parts) (previousOutputs : List Output)
+    (h : CacheFits p previousOutputs) (hlen : previousOutputs.length = p.inputs.length)
+    (hnull : NoNullPrevOut p.inputs)
+    (i : Fin (p.toSpec cs previousOutputs).transparent.vin.length)
+    (o : OutPoint) (u : List Byte) (q : BitVec 32)
+    (hin : p.inputs[i.val]? = some (.prevOut o u q))
+    (cache : Zip244SighashCache) (hc : Zip244SighashCache.new p previousOutputs = some cache)
+    (sighashV4Raw : Byte → Option (ℕ × List Byte) → Option Blake2bHash)
+    (version : ℕ) (hv : 5 ≤ version) (scriptCode : List Byte)
+    (b : Byte) (hashType : Script.HashType)
+    (hparse : Script.HashType.fromBits (b.setWidth 32) false = .ok hashType)
+    (pubkeyValid : Bool) (verify : Blake2bHash → Bool) :
+    let tx := p.toSpec cs previousOutputs
+    Script.checkSig pubkeyValid verify (Script.calculateSighash
+        ⟨sigHasherSighash cache, sighashV4Raw⟩ version p.outputs.length i.val scriptCode
+        hashType) =
+      some (pubkeyValid && Spec.checkSig (fun d => verify d.toList)
+        (Spec.transparentSighash? blake2b256 (tx.version blake2b256) tx.header.consensusBranchId
+          (Spec.headerDigest blake2b256 tx.header)
+          (Spec.saplingDigest blake2b256 tx.format tx.sapling) (tx.orchardDigest blake2b256)
+          i b)) := by
+  obtain rfl : cache = specCache cs p previousOutputs :=
+    Option.some.inj (hc.symm.trans (new_eq cs p previousOutputs h))
+  exact Script.checkSig_v5 blake2b256 _ _ _ _ _ _ version hv p.outputs.length
+    (by simp [Parts.toSpec, transparentSpec]) i scriptCode
+    (fun ht hr => sigHasherSighash_eq cs p previousOutputs hlen hnull i o u q hin scriptCode ht hr)
+    b hashType (Script.rawBits_of_fromBits hparse) pubkeyValid verify
+
 -- The build fails if a theorem rests on anything beyond Lean's three axioms.
+/--
+info: 'ZcashSighash.Verifier.Native.sighash_eq' depends on axioms:
+[propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs (whitespace := lax) in
+#print axioms sighash_eq
+
+/--
+info: 'ZcashSighash.Verifier.Native.sighash_shielded_eq' depends on axioms:
+[propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs (whitespace := lax) in
+#print axioms sighash_shielded_eq
+
+/--
+info: 'ZcashSighash.Verifier.Native.checkSig_native' depends on axioms:
+[propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs (whitespace := lax) in
+#print axioms checkSig_native
+
 /--
 info: 'ZcashSighash.Verifier.Native.authDigest_eq' depends on axioms:
 [propext, Classical.choice, Quot.sound]

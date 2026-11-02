@@ -13,6 +13,7 @@ height, so the rebuilt `scriptSig` is the parsed one whatever `push_num` compute
 module
 
 public import ZcashSighash.Verifier.TxId
+public import ZcashSighash.Verifier.Script
 
 @[expose] public section
 
@@ -363,7 +364,8 @@ def Version.saplingSpendsTxidIncludesAnchor : Version → Bool
   | .v5 => true
   | .v6 => false
 
-/-- `hash_sapling_spends` (lines 526–554): the anchor's `expect` panics without a shared anchor. -/
+/-- `hash_sapling_spends` (lines 526–554): the anchor's `expect` panics without a shared
+    anchor. -/
 def hashSaplingSpends (sapling : SaplingData) (version : Version) : Option Blake2bHash := do
   let mut h ← hasher (personal "ZTxIdSSpendsHash")
   if !sapling.spends.isEmpty then
@@ -722,6 +724,31 @@ def Zip244SighashCache.sighash (self : Zip244SighashCache) (hashType : Canonical
   let transparent ← self.transparentSigDigest hashType inputIndex
   combineTxidDigests self.consensusBranchId self.header transparent self.sapling self.orchard
     self.ironwood
+
+/-! ## `src/transaction/sighash.rs` -/
+
+/-- `CanonicalHashType::try_from(HashType)` (lines 123–129), through
+    `SighashType::try_from(HashType)` (lines 107–121) and
+    `CanonicalHashType::try_from(SighashType)` (lines 91–105): the six defined hash types, an
+    error for any other value. -/
+def CanonicalHashType.tryFrom (hashType : Script.ZHashType) : Option CanonicalHashType :=
+  if hashType = Script.ALL then some .all
+  else if hashType = Script.NONE then some .none
+  else if hashType = Script.SINGLE then some .single
+  else if hashType = Script.ALL_ANYONECANPAY then some .allAnyoneCanPay
+  else if hashType = Script.NONE_ANYONECANPAY then some .noneAnyoneCanPay
+  else if hashType = Script.SINGLE_ANYONECANPAY then some .singleAnyoneCanPay
+  else none
+
+/-- `SigHasher::sighash` (lines 206–228) for a version 5 or 6 transaction, whose `zip244` cache
+    is `cache`: the `expect` and the `assert!` panic for a hash type that is not canonical, and
+    for `SIGHASH_SINGLE` without a corresponding output. -/
+def sigHasherSighash (cache : Zip244SighashCache) (hashType : Script.ZHashType)
+    (inputIndexScriptCode : Option (ℕ × List Byte)) : Option Blake2bHash := do
+  let canonicalHashType ← CanonicalHashType.tryFrom hashType
+  if let some (inputIndex, _) := inputIndexScriptCode then
+    guard (!canonicalHashType.isSingle || cache.hasCorrespondingOutput inputIndex)
+  cache.sighash canonicalHashType (inputIndexScriptCode.map (·.1))
 
 /-- `txid` (lines 1013–1015). -/
 def txid (p : Parts) : Option Blake2bHash := txidInner p

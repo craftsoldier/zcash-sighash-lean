@@ -14,26 +14,30 @@ them gives the specification's digests with BLAKE2b-256. Each theorem states its
   panics.
 - `zakura-primitives` 4.0.0 (Zakura's fork of it): the same digests under the same hypotheses,
   for scripts of any length. Zakura's node computes version 4 to 6 signature digests, and version
-  5 and 6 identifiers and auth digests, with its own code in `zakura-chain`. Its version 5 and 6
-  code is transcribed and gives the test vectors' digests, and its thirteen constant digests are
-  proven; that it computes the specification's digests is not yet proven.
+  5 and 6 identifiers and auth digests, with its own code in `zakura-chain`.
+- `zakura-chain` 10.0.0: for versions 5 and 6, that code gives the specification's identifiers,
+  auth digests and signature digests, for transactions as it parses them: scripts that fit in a
+  protocol message, a coin for each input, and no input that spends a coin with the null
+  outpoint. Its version 4 signature digest is not yet proven.
 - `zakura-script` 5.0.0, the callback that gives `zcash_script` 0.6.0's `OP_CHECKSIG` its digest:
   in versions 5 and 6, the specification's digest, or none where ZIP 244 says validation fails
   (an undefined hash type, or `SIGHASH_SINGLE` without a corresponding output), which fails the
   signature check; in versions 3 and 4, the digest of the signature's own hash-type byte. It never
-  panics. The theorems assume the `SigHasher` it calls computes the specification's digests.
+  panics. In versions 5 and 6 it is proven with `zakura-chain`'s `SigHasher`; in versions 3 and
+  4 the theorems assume the `SigHasher` computes the specification's digests.
 
 | Crate               | Version | Status                   | Assumes                         |
 |---------------------|---------|--------------------------|---------------------------------|
 | `zcash_primitives`  | 0.31.0  | Proven, versions 3 to 6  | `blake2b_simd` computes BLAKE2b |
 | `zakura-primitives` | 4.0.0   | Proven, versions 3 to 6  | `blake2b_simd` computes BLAKE2b |
-| `zakura-script`     | 5.0.0   | Proven, versions 3 to 6  | Its `SigHasher`'s digests       |
-| `zakura-chain`      | 10.0.0  | Transcribed and tested   | Equivalence not yet proven      |
+| `zakura-script`     | 5.0.0   | Proven, versions 3 to 6  | Version 4 `SigHasher` digests   |
+| `zakura-chain`      | 10.0.0  | Proven, versions 5 and 6 | `blake2b_simd` computes BLAKE2b |
 
-The specification and both transcriptions give the digests of ZIP 244's, ZIP 143's and ZIP
-243's test vectors, and of the two version 6 transactions in the crates' own tests. Versions 1
-and 2 sign a SHA-256d digest neither crate computes; both panic on them. The transcribed code
-has no `unsafe` blocks, which CI checks.
+The specification and both `zcash_primitives` transcriptions give the digests of ZIP 244's, ZIP
+143's and ZIP 243's test vectors, and of the two version 6 transactions in the crates' own tests;
+`zakura-chain`'s, those of the version 5 and 6 ones. Versions 1 and 2 sign a SHA-256d digest
+neither crate computes; both panic on them. The transcribed code has no `unsafe` blocks, which
+CI checks.
 
 ## Verifying the proofs
 

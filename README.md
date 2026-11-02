@@ -19,6 +19,12 @@ them gives the specification's digests with BLAKE2b-256. Each theorem states its
   reader, adding rejections of its own (`zebra-chain` 15.0.0), so this holds of every version 5
   and 6 transaction Zebra accepts. Outside those hypotheses, theorems state what it computes
   instead, or that it panics.
+- `zebra-chain` 15.0.0 (Zebra 7.0.0's): its `sighash` hashes a rebuild of the transaction, with
+  the consensus branch ID of the network upgrade it validates under, and the coins its inputs
+  spend as their authorization. For every version 5 and 6 transaction the reader returns, under
+  the network upgrade of its own branch ID (any other is an error), the rebuild changes nothing
+  else, and given a coin per input, each script at most `MAX_COMPACT_SIZE` bytes, `sighash` gives
+  the specification's digests of the transaction spending those coins.
 - `zakura-primitives` 4.0.0 (Zakura's fork of it): the same digests under the same hypotheses,
   for scripts of any length. Zakura's node computes version 4 to 6 signature digests, and version
   5 and 6 identifiers and auth digests, with its own code in `zakura-chain`.
@@ -47,10 +53,12 @@ them gives the specification's digests with BLAKE2b-256. Each theorem states its
 | `zakura-primitives` | 4.0.0   | Proven, 3 to 6 (txid: 5, 6) | `blake2b_simd` computes BLAKE2b |
 | `zakura-script`     | 5.0.0   | Proven, 3 to 6              | Version 3 `SigHasher` digests   |
 | `zakura-chain`      | 10.0.0  | Proven, 4 to 6 (txid: 5, 6) | `blake2b_simd` computes BLAKE2b |
+| `zebra-chain`       | 15.0.0  | Proven, 5 and 6 (sighash)   | `blake2b_simd` computes BLAKE2b |
 
 The specification and both `zcash_primitives` transcriptions give the digests of ZIP 244's, ZIP
 143's and ZIP 243's test vectors, and of the version 5 and two version 6 transactions in the
-crates' own tests; `zakura-chain`'s, those of the version 4 to 6 ones. Versions 1 and 2 sign a
+crates' own tests; `zakura-chain`'s, those of the version 4 to 6 ones; `zebra-chain`'s, the
+signature digests of ZIP 244's and of the NU7 ones its own test uses. Versions 1 and 2 sign a
 SHA-256d digest that none of these crates computes: `zcash_primitives` and `zakura-primitives`
 panic on them, and `zakura-chain` hands them to `zakura-primitives`. The transcribed code has no
 `unsafe` blocks, which CI checks. The theorems are about what the code computes, not what it
@@ -83,9 +91,10 @@ The ZIP excerpts in `spec/` are under the MIT license in [`spec/COPYING.rst`](sp
 The Lean in `ZcashSighash/Verifier/` transcribes librustzcash's crates, Copyright (c) Electric
 Coin Company (and, for `orchard`, Zcash Open Development Lab), and Zakura's, Copyright (c) The
 Zakura Contributors, all under MIT OR Apache-2.0; `zcash_script` 0.6.0, by the Electric Coin
-Company, the Zcash Foundation and others, under Apache-2.0; and `bounded-vec` 0.9.0, under
-CC0-1.0. The test data in `ZcashSighash/Tests/` is copied from `zcash_primitives` 0.31.0,
-`zakura-primitives` 4.0.0 and `zakura-chain` 10.0.0.
+Company, the Zcash Foundation and others, under Apache-2.0; `zebra-chain` 15.0.0, by the Zcash
+Foundation, under MIT OR Apache-2.0; and `bounded-vec` 0.9.0, under CC0-1.0. The test data in
+`ZcashSighash/Tests/` is copied from `zcash_primitives` 0.31.0, `zakura-primitives` 4.0.0,
+`zakura-chain` 10.0.0 and `zebra-chain` 15.0.0.
 
 ### Contribution
 

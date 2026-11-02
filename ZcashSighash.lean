@@ -24,6 +24,8 @@
 * `Proofs/Parse.lean`: what it parses meets the native theorems' hypotheses.
 * `Verifier/Read.lean`: librustzcash's reader for version 5 and 6 transactions.
 * `Proofs/Read.lean`: every transaction it reads meets the digest theorems' hypotheses.
+* `Verifier/Zebra.lean`: Zebra's signature digests, of the transaction rebuilt.
+* `Proofs/Zebra.lean`: for every transaction the reader returns, they are the specification's.
 -/
 module
 
@@ -40,6 +42,7 @@ public import ZcashSighash.Proofs.NativeV4
 public import ZcashSighash.Proofs.BlockCommitment
 public import ZcashSighash.Proofs.Parse
 public import ZcashSighash.Proofs.Read
+public import ZcashSighash.Proofs.Zebra
 public import ZcashSighash.Verifier.Blake2b
 public import ZcashSighash.Verifier.Encoding
 public import ZcashSighash.Verifier.Transparent
@@ -55,3 +58,4 @@ public import ZcashSighash.Verifier.BlockCommitment
 public import ZcashSighash.Verifier.PushNum
 public import ZcashSighash.Verifier.Parse
 public import ZcashSighash.Verifier.Read
+public import ZcashSighash.Verifier.Zebra

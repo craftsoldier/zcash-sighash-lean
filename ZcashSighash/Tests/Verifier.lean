@@ -5,10 +5,13 @@ The transcribed `zcash_primitives` on ZIP 244's test vectors, as its own test do
 `SighashType::parse` accepts, of the vector's transparent input. Where the vector has no
 `SIGHASH_SINGLE` digest, the crate still computes one, as its test skips it. Likewise the crates'
 own transactions' digests, and `v4_signature_hash` on ZIP 143's and ZIP 243's vectors
-(`zip_0143`, `zip_0243`, lines 1084–1148).
+(`zip_0143`, `zip_0243`, lines 1084–1148). Last, Zebra's `sighash` on what the reader reads from
+ZIP 244's vectors and from the NU7 transactions of `zebra-chain`'s own test, and its
+`sighash_v4_raw` on ZIP 143's and ZIP 243's vectors.
 -/
 import ZcashSighash.Verifier.Zakura
 import ZcashSighash.Verifier.Read
+import ZcashSighash.Verifier.Zebra
 import ZcashSighash.Tests.Spec
 
 namespace ZcashSighash.Tests
@@ -303,5 +306,81 @@ def readsVersion (bytes : List Byte) (p : TxVersion → Bool) : Bool :=
 #guard (Read.readTxVersion (hex "0600008068636174")).isNone
 #guard (Read.readTxVersion (hex "0700008068636174")).isNone
 #guard (Read.readTxVersion (hex "00000000")).isNone
+
+/-! ## Zebra -/
+
+/-- A coin as Zebra holds it, if its value is in range. -/
+def zebraOutput (value : ℕ) (script : List Byte) : Option Zebra.Output :=
+  if h : value ≤ Native.MAX_MONEY then
+    some ⟨BitVec.ofNat 64 value, ⟨script⟩, (BitVec.toNat_ofNat _ _ ▸ Nat.mod_le _ _).trans h⟩
+  else none
+
+/-- Whether Zebra's digests of the vector's transaction are the vector's: its shielded signature
+    digest, and its transparent input's under each hash type. The transaction is the one
+    `Transaction::read` reads, under its own consensus branch ID, spending the vector's coins
+    (none for a coinbase, as Zebra looks up none). Where the vector has no `SIGHASH_SINGLE`
+    digest, Zebra still computes one. -/
+def checkZebra (v : Zip244Vector) : Bool :=
+  match (v.amounts.zip v.scriptPubKeys).mapM (fun (a, s) => zebraOutput a (hex s)),
+    Read.read ⟨[], []⟩ (hex v.tx) with
+  | some outs, some (.tx tx, []) =>
+    let coinbase := (tx.transparentBundle.map fun b : Transparent.Bundle => b.isCoinbase).getD false
+    let outs := if coinbase then [] else outs
+    match Zebra.PrecomputedTxData.new tx (some tx.consensusBranchId) outs with
+    | some (.ok data) =>
+      Zebra.sighash data 0x01 none == some (hex v.sighashShielded) &&
+      match v.transparentInput with
+      | none => true
+      | some i => (hashTypes v).all fun (ht, expected) =>
+        let digest := Zebra.sighash data (ht.toByte.setWidth 32) (some (i, []))
+        match expected with
+        | some e => digest == some (hex e)
+        | none => digest.isSome
+    | _ => false
+  | _, _ => false
+
+#guard zip244Vectors.map checkZebra = List.replicate 10 true
+
+/-- Whether Zebra's `sighash_v4_raw`, with the vector's raw hash type, gives the vector's digest.
+    The transaction holds branch ID 0 and is rebuilt under the vector's, so the digest is right
+    only if the rebuild's branch ID is the one hashed. Every input spends a coin with the
+    vector's amount and its script code as the lock script. For a shielded vector, `sighash` with
+    `HashType::ALL`, as Zebra computes it, must give the digest too. -/
+def checkZebraV4 (v : LegacyVector) : Bool :=
+  match (legacyDecoder (.ofNat _ v.branch.id) []).run' (hex v.tx),
+    zebraOutput v.amount (hex v.scriptCode) with
+  | some stx, some coin =>
+    let tx := { legacyToTransactionData stx (match stx.format with | .v3 => false | .v4 => true)
+      with consensusBranchId := 0 }
+    let outs := List.replicate stx.transparent.vin.length coin
+    match Zebra.PrecomputedTxData.new tx (some (.ofNat _ v.branch.id)) outs with
+    | some (.ok data) =>
+      Zebra.sighashV4Raw data (.ofNat _ v.hashType) (v.transparentInput.map (·, hex v.scriptCode))
+        == some (hex v.sighash) &&
+      (v.transparentInput.isSome || Zebra.sighash data 0x01 none == some (hex v.sighash))
+    | _ => false
+  | _, _ => false
+
+#guard (zip143Vectors ++ zip243Vectors).map checkZebraV4 = List.replicate 20 true
+
+/-- Whether Zebra gives the NU7 transaction `bytes` the shielded signature digest `digest` under
+    NU7 (branch ID `0x77190AD9`), and rejects it under NU6.3 (`0x37A5165B`; `zebra-chain`
+    15.0.0, `src/parameters/network_upgrade.rs`, lines 243 and 245). -/
+def checkZebraNu7 (bytes : List Byte) (digest : String) : Bool :=
+  match Read.read ⟨[], []⟩ bytes with
+  | some (.tx tx, []) =>
+    (match Zebra.PrecomputedTxData.new tx (some 0x77190AD9) [] with
+      | some (.ok data) => Zebra.sighash data 0x01 none == some (hex digest)
+      | _ => false) &&
+    match Zebra.PrecomputedTxData.new tx (some 0x37A5165B) [] with
+    | some (.error .invalidConsensusBranchId) => true
+    | _ => false
+  | _ => false
+
+/- `zebra-chain` 15.0.0's `nu7_branch_id_and_transaction_formats` (`src/parameters/tests.rs`,
+   lines 175–239), on both NU7 transactions. -/
+#guard checkZebraNu7 (hex "050000800a27a726d90a197700000000010000000000000000")
+  "328d975581fbf002206ef6f0b69fe57fb47f40ec31c59ac62c3565d4e259e128"
+#guard checkZebraNu7 v6Encoded "78296c68a370c2e1f058d997c81c7b011c4562c52fc5ca2994ad59cd179fbe9e"
 
 end ZcashSighash.Tests

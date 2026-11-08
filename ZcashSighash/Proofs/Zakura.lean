@@ -254,8 +254,9 @@ theorem transparentSigDigest_transparent (b : Transparent.Bundle)
 
 /-- Zakura's `transparent_sig_digest` gives §S.2's transparent signature digest. -/
 theorem transparentSigDigest_eq (b : Transparent.Bundle) (hne : b.vin ≠ [] ∨ b.vout ≠ [])
-    (hk : ∀ o ∈ b.vout, o.scriptPubkey.code.length ≤ MAX_COMPACT_SIZE) (hc : ContextFits b)
-    (input : SignableInput) (sinput : Spec.SignableInput b.toSpec) (hr : InputRel b input sinput) :
+    (hk : ∀ o ∈ b.vout, o.scriptPubkey.code.length ≤ MAX_COMPACT_SIZE)
+    (hc' : ContextFitsIfRead b) (input : SignableInput) (sinput : Spec.SignableInput b.toSpec)
+    (hr : InputRel b input sinput) :
     transparentSigDigest (some (b, txidDigestsOf b)) input =
       some (Spec.transparentSigDigest blake2b256 sinput).toList := by
   have hvin : b.toSpec.vin = [] ↔ b.vin = [] := by simp [Transparent.Bundle.toSpec]
@@ -266,6 +267,7 @@ theorem transparentSigDigest_eq (b : Transparent.Bundle) (hne : b.vin ≠ [] ∨
     exact hashTransparentTxidData_some b hne
   · have hcb' : ¬(b.toSpec.IsCoinbase ∨ b.toSpec.vin = []) := by
       simpa [isCoinbase_toSpec, hvin, List.isEmpty_iff] using hcb
+    have hc := hc' (by simpa using hcb)
     rw [Spec.transparentSigDigest, ite_eq_right hcb']
     rcases hr with _ | ⟨input, ht, i, hh, hi, hv, hs⟩
     · exact transparentSigDigest_shielded b hc hcb
@@ -273,7 +275,7 @@ theorem transparentSigDigest_eq (b : Transparent.Bundle) (hne : b.vin ≠ [] ∨
 
 /-- Zakura's `signature_hash` gives the specification's signature digest, versions 5 and 6. -/
 theorem signatureHash_eq (tx : TransactionData) (h : WellFormed tx) (b : Transparent.Bundle)
-    (hb : tx.transparentBundle = some b) (hc : ContextFits b) (input : SignableInput)
+    (hb : tx.transparentBundle = some b) (hc : ContextFitsIfRead b) (input : SignableInput)
     (sinput : Spec.SignableInput b.toSpec) (hr : InputRel b input sinput) :
     signatureHash tx input (zip244DigestsOf tx) =
       some (Spec.signatureDigest blake2b256 (tx.toSpec.version blake2b256) tx.consensusBranchId

@@ -23,7 +23,8 @@
 * `Verifier/Parse.lean`: Zakura's parser for transparent inputs and outputs.
 * `Proofs/Parse.lean`: what it parses meets the native theorems' hypotheses.
 * `Verifier/Read.lean`: librustzcash's reader for version 5 and 6 transactions.
-* `Proofs/Read.lean`: every transaction it reads meets the digest theorems' hypotheses.
+* `Proofs/Read.lean`: every transaction it reads meets the digest theorems' hypotheses, and its
+  values are in range.
 * `Verifier/Zebra.lean`: Zebra's signature digests, of the transaction rebuilt.
 * `Proofs/Zebra.lean`: for a transaction the reader returns, under its own branch ID, and coins
   that fit it, they are the specification's.

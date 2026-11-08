@@ -15,10 +15,11 @@ them gives the specification's digests with BLAKE2b-256. Each theorem states its
   commitment would be. Every version 5 and 6 transaction its reader (`Transaction::read`) returns
   meets all but the last, which the coins looked up for it must meet, and has the version its
   first 8 bytes encode, so its digests follow that version's rules; computing its identifier,
-  which the reader does at once, never panics. Zebra 7.0.0 parses every transaction with this
-  reader, adding rejections of its own (`zebra-chain` 15.0.0), so this holds of every version 5
-  and 6 transaction Zebra accepts. Outside those hypotheses, theorems state what it computes
-  instead, or that it panics.
+  which the reader does at once, never panics; and its values are in range, each transparent
+  output at most `MAX_MONEY` and each value balance within `MAX_MONEY` of zero. Zebra 7.0.0
+  parses every transaction with this reader, adding rejections of its own (`zebra-chain`
+  15.0.0), so this holds of every version 5 and 6 transaction Zebra accepts. Outside those
+  hypotheses, theorems state what it computes instead, or that it panics.
 - `zebra-chain` 15.0.0 (Zebra 7.0.0's): its `sighash` hashes a rebuild of the transaction, with
   the consensus branch ID of the network upgrade it validates under and the coins its inputs
   spend as their authorization. For a version 5 or 6 transaction the reader returns, a network

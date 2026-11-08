@@ -5,9 +5,10 @@ The transcribed `zcash_primitives` on ZIP 244's test vectors, as its own test do
 `SighashType::parse` accepts, of the vector's transparent input. Where the vector has no
 `SIGHASH_SINGLE` digest, the crate still computes one, as its test skips it. Likewise the crates'
 own transactions' digests, and `v4_signature_hash` on ZIP 143's and ZIP 243's vectors
-(`zip_0143`, `zip_0243`, lines 1084–1148). Last, Zebra's `sighash` on what the reader reads from
-ZIP 244's vectors and from the NU7 transactions of `zebra-chain`'s own test, and its
-`sighash_v4_raw` on ZIP 143's and ZIP 243's vectors.
+(`zip_0143`, `zip_0243`, lines 1084–1148). Then `Transaction::read`: on ZIP 244's vectors and the
+crates' own, truncated, on version headers, and on values at the edges of their range. Last,
+Zebra's `sighash` on what the reader reads from ZIP 244's vectors and from the NU7 transactions of
+`zebra-chain`'s own test, and its `sighash_v4_raw` on ZIP 143's and ZIP 243's vectors.
 -/
 import ZcashSighash.Verifier.Zakura
 import ZcashSighash.Verifier.Read
@@ -306,6 +307,92 @@ def readsVersion (bytes : List Byte) (p : TxVersion → Bool) : Bool :=
 #guard (Read.readTxVersion (hex "0600008068636174")).isNone
 #guard (Read.readTxVersion (hex "0700008068636174")).isNone
 #guard (Read.readTxVersion (hex "00000000")).isNone
+
+/-- A version 5 transaction with one Sapling Output, zero bytes but for its header and its value
+    balance `vb`. -/
+def withValueBalance (vb : BitVec 64) : List Byte :=
+  hex "050000800a27a726d90a19770000000001000000" ++ hex "00000001" ++ List.replicate 756 0 ++
+    toLeBytes 8 vb ++ List.replicate 256 0 ++ hex "00"
+
+/-- Whether `Transaction::read` reads all of `withValueBalance vb`, into a transaction whose
+    Sapling value balance is `vb`. -/
+def readsValueBalance (vb : BitVec 64) : Bool :=
+  match Read.read ⟨[], []⟩ (withValueBalance vb) with
+  | some (.tx tx, []) => (tx.saplingBundle.map (·.valueBalance)) == some vb
+  | _ => false
+
+/- `read_amount`, called for a Sapling value balance by `read_v5_bundle` (`components/sapling.rs`,
+   line 458), accepts one in `-MAX_MONEY..=MAX_MONEY`, -1 included, and rejects one outside it,
+   `i64::MIN` included (`zcash_protocol` 0.11.0, `src/value.rs`, lines 58–66). These test the
+   transcription, which leaves out the point checks the Rust would fail these zero bytes on. -/
+#guard readsValueBalance (.ofInt 64 2100000000000000)
+#guard readsValueBalance (.ofInt 64 (-2100000000000000))
+#guard readsValueBalance (.ofInt 64 (-1))
+#guard (Read.read ⟨[], []⟩ (withValueBalance (.ofInt 64 2100000000000001))).isNone
+#guard (Read.read ⟨[], []⟩ (withValueBalance (.ofInt 64 (-2100000000000001)))).isNone
+#guard (Read.read ⟨[], []⟩ (withValueBalance (.ofNat 64 (2 ^ 63)))).isNone
+
+/-- A version 5 transaction with one Orchard Action, zero bytes but for its header and its value
+    balance `vb`. -/
+def withOrchardValueBalance (vb : BitVec 64) : List Byte :=
+  hex "050000800a27a726d90a19770000000001000000" ++ hex "0000000001" ++ List.replicate 820 0 ++
+    hex "00" ++ toLeBytes 8 vb ++ List.replicate 32 0 ++ hex "00" ++ List.replicate 128 0
+
+/-- Whether `Transaction::read` reads all of `withOrchardValueBalance vb`, into a transaction whose
+    Orchard value balance is `vb`. -/
+def readsOrchardValueBalance (vb : BitVec 64) : Bool :=
+  match Read.read ⟨[], []⟩ (withOrchardValueBalance vb) with
+  | some (.tx tx, []) => (tx.orchardBundle.map (·.valueBalance)) == some vb
+  | _ => false
+
+/- The same of an Orchard value balance (`read_bundle`, `components/orchard.rs`, line 122). The
+   Rust would reject this bundle for its empty proof (`try_from_parts`, lines 139–152), a check
+   the transcription leaves out. -/
+#guard readsOrchardValueBalance (.ofInt 64 2100000000000000)
+#guard readsOrchardValueBalance (.ofInt 64 (-2100000000000000))
+#guard readsOrchardValueBalance (.ofInt 64 (-1))
+#guard (Read.read ⟨[], []⟩ (withOrchardValueBalance (.ofInt 64 2100000000000001))).isNone
+#guard (Read.read ⟨[], []⟩ (withOrchardValueBalance (.ofInt 64 (-2100000000000001)))).isNone
+#guard (Read.read ⟨[], []⟩ (withOrchardValueBalance (.ofNat 64 (2 ^ 63)))).isNone
+
+/-- A version 6 transaction with one Ironwood Action, zero bytes but for its header and its value
+    balance `vb`. -/
+def withIronwoodValueBalance (vb : BitVec 64) : List Byte :=
+  hex "0600008098b684d8d90a19770000000001000000" ++ hex "000000000001" ++ List.replicate 820 0 ++
+    hex "00" ++ toLeBytes 8 vb ++ List.replicate 32 0 ++ hex "00" ++ List.replicate 128 0
+
+/-- Whether `Transaction::read` reads all of `withIronwoodValueBalance vb`, into a transaction whose
+    Ironwood value balance is `vb`. -/
+def readsIronwoodValueBalance (vb : BitVec 64) : Bool :=
+  match Read.read ⟨[], []⟩ (withIronwoodValueBalance vb) with
+  | some (.tx tx, []) => (tx.ironwoodBundle.map (·.valueBalance)) == some vb
+  | _ => false
+
+/- The same of an Ironwood value balance. -/
+#guard readsIronwoodValueBalance (.ofInt 64 2100000000000000)
+#guard readsIronwoodValueBalance (.ofInt 64 (-2100000000000000))
+#guard (Read.read ⟨[], []⟩ (withIronwoodValueBalance (.ofInt 64 2100000000000001))).isNone
+#guard (Read.read ⟨[], []⟩ (withIronwoodValueBalance (.ofInt 64 (-2100000000000001)))).isNone
+
+/-- A version 5 transaction with one transparent output of value `v`, and nothing else. -/
+def withOutputValue (v : BitVec 64) : List Byte :=
+  hex "050000800a27a726d90a19770000000001000000" ++ hex "0001" ++ toLeBytes 8 v ++
+    hex "00000000"
+
+/-- Whether `Transaction::read` reads all of `withOutputValue v`, into a transaction whose output
+    has value `v`. -/
+def readsOutputValue (v : BitVec 64) : Bool :=
+  match Read.read ⟨[], []⟩ (withOutputValue v) with
+  | some (.tx tx, []) => (tx.transparentBundle.map (·.vout.map (·.value))) == some [v]
+  | _ => false
+
+/- An output's value is at most `MAX_MONEY` (`TxOut::read`, `zcash_transparent` 0.11.0,
+   `src/bundle.rs`, lines 385–398). The Rust reads it as a signed `i64` and rejects a negative
+   one; the transcription reads it as unsigned, which accepts the same values. -/
+#guard readsOutputValue (.ofNat 64 2100000000000000)
+#guard readsOutputValue 0
+#guard (Read.read ⟨[], []⟩ (withOutputValue (.ofNat 64 2100000000000001))).isNone
+#guard (Read.read ⟨[], []⟩ (withOutputValue (.ofInt 64 (-1)))).isNone
 
 /-! ## Zebra -/
 

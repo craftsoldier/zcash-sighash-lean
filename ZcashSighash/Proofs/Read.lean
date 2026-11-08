@@ -4,7 +4,8 @@ What `zcash_primitives`' reader guarantees: every version 5 and 6 transaction
 (`Proofs/Verifier.lean`), and begins with the encoding of its version (`read_wellFormed`,
 `read_write`). So its identifier is the specification's, and computing it, which
 `Transaction::read` does at once (`from_data_v5`, `from_data_v6`), never panics: the shape of
-GHSA-qp6f (`read_txid_eq`).
+GHSA-qp6f (`read_txid_eq`). Every value it encodes is in range: each transparent output's at
+most `MAX_MONEY`, and each value balance in `-MAX_MONEY..=MAX_MONEY` (`read_valuesInRange`).
 -/
 module
 
@@ -322,6 +323,138 @@ theorem read_txid_eq {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
       some (some (tx.toSpec.txid blake2b256).toList) :=
   txid_eq tx (read_wellFormed h)
 
+/-! ## Values -/
+
+/-- A value balance in `-MAX_MONEY..=MAX_MONEY`, as an `i64`. -/
+def BalanceInRange (v : BitVec 64) : Prop :=
+  -(Native.MAX_MONEY : ℤ) ≤ v.toInt ∧ v.toInt ≤ Native.MAX_MONEY
+
+/-- Every value a transaction encodes is in range: each transparent output's at most
+    `MAX_MONEY`, and each value balance in `-MAX_MONEY..=MAX_MONEY`. The coins its inputs spend,
+    which it does not encode, are not among them. -/
+structure ValuesInRange (tx : TransactionData) : Prop where
+  outputs : ∀ b, tx.transparentBundle = some b → ∀ o ∈ b.vout, o.value.toNat ≤ Native.MAX_MONEY
+  sapling : ∀ b, tx.saplingBundle = some b → BalanceInRange b.valueBalance
+  orchard : ∀ b, tx.orchardBundle = some b → BalanceInRange b.valueBalance
+  ironwood : ∀ b, tx.ironwoodBundle = some b → BalanceInRange b.valueBalance
+
+/-- `read_amount` reads a value balance in range. -/
+theorem readAmount_range {s s' : List Byte} {v : BitVec 64}
+    (h : readAmount s = some (v, s')) : BalanceInRange v := by
+  obtain ⟨n, s₁, -, h⟩ := Parser.bind_eq_some.mp h
+  split at h
+  · simp only [pure_apply, Option.some.injEq, Prod.mk.injEq] at h
+    obtain ⟨rfl, -⟩ := h
+    assumption
+  · simp at h
+
+/-- An output read has a value at most `MAX_MONEY`. -/
+theorem readTxOut_range {s s' : List Byte} {o : Transparent.TxOut}
+    (h : readTxOut s = some (o, s')) : o.value.toNat ≤ Native.MAX_MONEY := by
+  obtain ⟨v, s₁, hv, h⟩ := Parser.bind_eq_some.mp h
+  dsimp only at h
+  split at h
+  · simp at h
+  · rename_i hle
+    obtain ⟨sc, s₂, -, h⟩ := Parser.bind_eq_some.mp h
+    simp only [pure_apply, Option.some.injEq, Prod.mk.injEq] at h
+    obtain ⟨rfl, -⟩ := h
+    simp only [BitVec.toNat_ofNat]
+    unfold Native.MAX_MONEY at hle ⊢
+    omega
+
+/-- A Sapling bundle read has a value balance in range. -/
+theorem readSaplingV5_range {s s' : List Byte} {ob : Option Sapling.Bundle}
+    (h : readSaplingV5 s = some (ob, s')) (b) (hb : ob = some b) :
+    BalanceInRange b.valueBalance := by
+  obtain ⟨sds, s₁, -, h⟩ := Parser.bind_eq_some.mp h
+  obtain ⟨ods, s₂, -, h⟩ := Parser.bind_eq_some.mp h
+  obtain ⟨vb, s₃, hvb, h⟩ := Parser.bind_eq_some.mp h
+  obtain ⟨anchor, s₄, -, h⟩ := Parser.bind_eq_some.mp h
+  obtain ⟨_, s₅, -, h⟩ := Parser.bind_eq_some.mp h
+  obtain ⟨_, s₆, -, h⟩ := Parser.bind_eq_some.mp h
+  obtain ⟨_, s₇, -, h⟩ := Parser.bind_eq_some.mp h
+  obtain ⟨bindingSig, s₈, -, h⟩ := Parser.bind_eq_some.mp h
+  simp only [pure_apply, Option.some.injEq, Prod.mk.injEq] at h
+  obtain ⟨rfl, -⟩ := h
+  cases bindingSig with
+  | none => simp at hb
+  | some sig =>
+    simp only [Option.bind_some, saplingFromParts] at hb
+    split at hb
+    · simp at hb
+    · simp only [Option.some.injEq] at hb
+      subst hb
+      unfold readIf at hvb
+      split at hvb
+      · exact readAmount_range hvb
+      · simp only [pure_apply, Option.some.injEq, Prod.mk.injEq] at hvb
+        obtain ⟨rfl, -⟩ := hvb
+        simp [BalanceInRange]
+
+/-- An Orchard-shaped bundle read has a value balance in range. -/
+theorem readOrchardBundle_range {pool : Orchard.ValuePool} {s s' : List Byte}
+    {ob : Option Orchard.Bundle} (h : readOrchardBundle pool s = some (ob, s')) (b)
+    (hb : ob = some b) : BalanceInRange b.valueBalance := by
+  obtain ⟨acts, s₁, -, h⟩ := Parser.bind_eq_some.mp h
+  split at h
+  · simp only [pure_apply, Option.some.injEq, Prod.mk.injEq] at h
+    obtain ⟨rfl, -⟩ := h
+    simp at hb
+  · obtain ⟨_, s₂, -, h⟩ := Parser.bind_eq_some.mp h
+    obtain ⟨vb, s₃, hvb, h⟩ := Parser.bind_eq_some.mp h
+    obtain ⟨_, s₄, -, h⟩ := Parser.bind_eq_some.mp h
+    obtain ⟨_, s₅, -, h⟩ := Parser.bind_eq_some.mp h
+    obtain ⟨_, s₆, -, h⟩ := Parser.bind_eq_some.mp h
+    obtain ⟨_, s₇, -, h⟩ := Parser.bind_eq_some.mp h
+    dsimp only at h
+    generalize nonEmptyFromVec _ = o at h
+    cases o with
+    | none => simp only [Native.fail_apply] at h; cases h
+    | some actions =>
+      simp only [pure_apply, Option.some.injEq, Prod.mk.injEq] at h
+      obtain ⟨rfl, -⟩ := h
+      simp only [Option.some.injEq] at hb
+      rw [← hb]
+      exact readAmount_range hvb
+
+/-- A transparent bundle read has outputs of at most `MAX_MONEY`. -/
+theorem readTransparent_range {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
+    {ob : Option Transparent.Bundle} (h : readTransparent ctx s = some (ob, s')) (b)
+    (hb : ob = some b) : ∀ o ∈ b.vout, o.value.toNat ≤ Native.MAX_MONEY := by
+  obtain ⟨vin, s₁, -, h⟩ := Parser.bind_eq_some.mp h
+  obtain ⟨vout, s₂, ho, h⟩ := Parser.bind_eq_some.mp h
+  simp only [pure_apply, Option.some.injEq, Prod.mk.injEq] at h
+  obtain ⟨rfl, -⟩ := h
+  by_cases he : vin.isEmpty && vout.isEmpty
+  · simp [he] at hb
+  · simp only [he, Bool.false_eq_true, ite_false, Option.some.injEq] at hb
+    subst hb
+    exact readVector_forall (fun _ _ _ h => readTxOut_range h) ho
+
+/-- **Every value a version 5 or 6 transaction `zcash_primitives` reads encodes is in
+    range.** -/
+theorem read_valuesInRange {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
+    {tx : TransactionData} (h : read ctx s = some (.tx tx, s')) : ValuesInRange tx := by
+  obtain ⟨s₁, ⟨-, ht⟩ | ⟨-, ht⟩⟩ := read_tx h
+  · obtain ⟨_, s₂, -, h⟩ := Parser.bind_eq_some.mp ht
+    obtain ⟨t, s₃, htr, h⟩ := Parser.bind_eq_some.mp h
+    obtain ⟨sap, s₄, hs, h⟩ := Parser.bind_eq_some.mp h
+    obtain ⟨orc, s₅, ho, h⟩ := Parser.bind_eq_some.mp h
+    simp only [pure_apply, Option.some.injEq, Prod.mk.injEq] at h
+    obtain ⟨rfl, -⟩ := h
+    exact ⟨readTransparent_range htr, readSaplingV5_range hs, readOrchardBundle_range ho,
+      fun _ hb => by cases hb⟩
+  · obtain ⟨_, s₂, -, h⟩ := Parser.bind_eq_some.mp ht
+    obtain ⟨t, s₃, htr, h⟩ := Parser.bind_eq_some.mp h
+    obtain ⟨sap, s₄, hs, h⟩ := Parser.bind_eq_some.mp h
+    obtain ⟨orc, s₅, ho, h⟩ := Parser.bind_eq_some.mp h
+    obtain ⟨iw, s₆, hi, h⟩ := Parser.bind_eq_some.mp h
+    simp only [pure_apply, Option.some.injEq, Prod.mk.injEq] at h
+    obtain ⟨rfl, -⟩ := h
+    exact ⟨readTransparent_range htr, readSaplingV5_range hs, readOrchardBundle_range ho,
+      readOrchardBundle_range hi⟩
+
 -- The build fails if a theorem rests on anything beyond Lean's three axioms.
 /--
 info: 'ZcashSighash.Verifier.Read.read_txid_eq' depends on axioms:
@@ -336,5 +469,12 @@ info: 'ZcashSighash.Verifier.Read.read_write' depends on axioms:
 -/
 #guard_msgs (whitespace := lax) in
 #print axioms read_write
+
+/--
+info: 'ZcashSighash.Verifier.Read.read_valuesInRange' depends on axioms:
+[propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs (whitespace := lax) in
+#print axioms read_valuesInRange
 
 end ZcashSighash.Verifier.Read

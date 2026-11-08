@@ -315,11 +315,11 @@ def zebraOutput (value : ℕ) (script : List Byte) : Option Zebra.Output :=
     some ⟨BitVec.ofNat 64 value, ⟨script⟩, (BitVec.toNat_ofNat _ _ ▸ Nat.mod_le _ _).trans h⟩
   else none
 
-/-- Whether Zebra's digests of the transaction `Transaction::read` reads from the vector, under
-    the network upgrade of its own consensus branch ID and with the vector's coins, none for a
-    coinbase, as Zebra looks up, are the vector's: its shielded signature digest, and its
-    transparent input's under each hash type. Where the vector has no `SIGHASH_SINGLE` digest,
-    Zebra still computes one. -/
+/-- Whether Zebra's digests of the vector's transaction are the vector's: its shielded signature
+    digest, and its transparent input's under each hash type. The transaction is the one
+    `Transaction::read` reads, under its own consensus branch ID, spending the vector's coins
+    (none for a coinbase, as Zebra looks up none). Where the vector has no `SIGHASH_SINGLE`
+    digest, Zebra still computes one. -/
 def checkZebra (v : Zip244Vector) : Bool :=
   match (v.amounts.zip v.scriptPubKeys).mapM (fun (a, s) => zebraOutput a (hex s)),
     Read.read ⟨[], []⟩ (hex v.tx) with
@@ -341,11 +341,11 @@ def checkZebra (v : Zip244Vector) : Bool :=
 
 #guard zip244Vectors.map checkZebra = List.replicate 10 true
 
-/-- Whether Zebra's `sighash_v4_raw` of the vector's transaction, rebuilt under the vector's
-    branch ID from a transaction that holds another (0), with the vector's raw hash type, is the
-    vector's digest: its transparent input's coin has the vector's amount and the script code as
-    its lock script, as do the other inputs'. For a shielded vector, so is `sighash` with
-    `HashType::ALL`, as Zebra computes it. -/
+/-- Whether Zebra's `sighash_v4_raw`, with the vector's raw hash type, gives the vector's digest.
+    The transaction holds branch ID 0 and is rebuilt under the vector's, so the digest is right
+    only if the rebuild's branch ID is the one hashed. Every input spends a coin with the
+    vector's amount and its script code as the lock script. For a shielded vector, `sighash` with
+    `HashType::ALL`, as Zebra computes it, must give the digest too. -/
 def checkZebraV4 (v : LegacyVector) : Bool :=
   match (legacyDecoder (.ofNat _ v.branch.id) []).run' (hex v.tx),
     zebraOutput v.amount (hex v.scriptCode) with

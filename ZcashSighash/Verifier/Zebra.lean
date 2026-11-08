@@ -1,14 +1,18 @@
 /-
-Zebra 7.0.0's signature digests (`zebra-chain` 15.0.0, `src/primitives/zcash_primitives.rs` and
-`src/transaction/compat.rs`), and the `zcash_primitives` 0.31.0 code they call that the digests
-do not: `TransactionData::from_parts`, `from_parts_v6` and `map_authorization`
-(`src/transaction/mod.rs`), with the `map_authorization` of `zcash_transparent` 0.11.0,
-`sapling-crypto` 0.9.0 and `orchard` 0.16.0, and `PrecomputedSighashData::new`
-(`src/transaction/sighash.rs`).
+Zebra 7.0.0's signature digests. Zebra does not hash the transaction `Transaction::read`
+returned: it takes it apart, rebuilds it with the consensus branch ID of the network upgrade it
+validates it under, and replaces its transparent authorization with the coins its inputs spend
+(`all_previous_outputs`). Then it calls `zcash_primitives`' signature hash on the result.
 
-Zebra does not hash the transaction `Transaction::read` returned: it takes it apart, rebuilds it
-with the consensus branch ID of the network upgrade it validates it under, and replaces its
-transparent authorization with the coins its inputs spend (`all_previous_outputs`).
+Transcribed here:
+* `zebra-chain` 15.0.0: `src/primitives/zcash_primitives.rs` and `src/transaction/compat.rs`.
+* `zcash_primitives` 0.31.0, the parts the digests themselves do not use:
+  `TransactionData::from_parts`, `from_parts_v6` and `map_authorization`
+  (`src/transaction/mod.rs`), and `PrecomputedSighashData::new` (`src/transaction/sighash.rs`).
+* The `map_authorization` of `zcash_transparent` 0.11.0, `sapling-crypto` 0.9.0 and `orchard`
+  0.16.0.
+
+The model is a release build: `debug_assert!`s are left out.
 -/
 module
 
@@ -98,8 +102,8 @@ def TransactionData.fromParts (version : TxVersion) (consensusBranchId lockTime 
     saplingBundle, orchardBundle, none⟩
 
 /-- `TransactionData::from_parts_v6` (lines 455–474), through `from_parts_v6_or_v7` (lines
-    563–592): version 6, no Sprout bundle. Its `debug_assert!` is skipped: the model is a release
-    build. -/
+    563–592): version 6, no Sprout bundle. Its `debug_assert!` is left out (see the module
+    docstring). -/
 def TransactionData.fromPartsV6 (consensusBranchId lockTime expiryHeight : BitVec 32)
     (transparentBundle : Option Transparent.Bundle) (saplingBundle : Option Sapling.Bundle)
     (orchardBundle ironwoodBundle : Option Orchard.Bundle) : TransactionData :=
@@ -166,10 +170,9 @@ def version : TxVersion → ℕ
   | .v5 => 5
   | .v6 => 6
 
-/-- `transparent::Output` (`src/transparent.rs`, lines 330–337): its value an
-    `Amount<NonNegative>`, which holds an `i64` in `0..=MAX_MONEY` (`src/amount.rs`, lines
-    580–584; `MAX_MONEY`, line 610, the same value as `Native.MAX_MONEY`), and its lock
-    script. -/
+/-- `transparent::Output` (`src/transparent.rs`, lines 330–337): a value and a lock script. The
+    value is an `Amount<NonNegative>`, an `i64` in `0..=MAX_MONEY` (`src/amount.rs`, lines
+    580–584). Zebra's `MAX_MONEY` (line 610) is `Native.MAX_MONEY`'s value. -/
 structure Output where
   value : BitVec 64
   lockScript : Transparent.Script
@@ -194,8 +197,8 @@ def identityMapOrchard : Orchard.MapAuth := ⟨fun s => s, fun a => a⟩
 
 /-- `transaction_data_from_parts` (`src/transaction/compat.rs`, lines 293–332): `from_parts_v6`
     for version 6, which drops the Sprout bundle, and `from_parts` otherwise, which drops the
-    Ironwood bundle. Its `debug_assert!` (lines 316–319) is skipped: the model is a release
-    build. -/
+    Ironwood bundle. Its `debug_assert!` (lines 316–319) is left out (see the module
+    docstring). -/
 def transactionDataFromParts (version : TxVersion) (branchId lockTime expiryHeight : BitVec 32)
     (transparentBundle : Option Transparent.Bundle) (sproutBundle : Option Sprout.Bundle)
     (saplingBundle : Option Sapling.Bundle) (orchardBundle ironwoodBundle : Option Orchard.Bundle) :
@@ -240,15 +243,15 @@ def PrecomputedTxData.new (tx : TransactionData) (nuBranchId : Option (BitVec 32
     else Except.ok <$> fromTransactionWithBranchId tx branchId allPreviousOutputs
 
 /-- `SighashError` (lines 332–360), without `InvalidPreviousOutputAmount`, which `sighash_inner`
-    never returns. -/
+    never returns (see `sighashInner`). -/
 inductive SighashError where
   | inputIndexOutOfBounds
   | noTransparentBundle
   | bundleInputCountMismatch
 
-/-- `sighash_inner` (lines 467–531): the signable input, then `signature_hash`. A previous output's
-    value is a valid `Zatoshis`, as in `transparentAuth`, so `InvalidPreviousOutputAmount` (lines
-    503–506) is never returned. -/
+/-- `sighash_inner` (lines 467–531): the signable input, then `signature_hash`. Its
+    `InvalidPreviousOutputAmount` (lines 503–506) is never returned, for the reason in
+    `transparentAuth`. -/
 def sighashInner (precomputedTxData : PrecomputedTxData) (sighashType : Transparent.SighashType)
     (inputIndexScriptCode : Option (ℕ × List Byte)) :
     Option (Except SighashError Blake2bHash) := do
@@ -272,9 +275,9 @@ def sighashInner (precomputedTxData : PrecomputedTxData) (sighashType : Transpar
   | .error e => pure (.error e)
   | .ok signableInput => Except.ok <$> precomputedTxData.sighashData.signatureHash signableInput
 
-/-- `HashType` (`src/transaction/sighash.rs`, lines 15–35), its bits, as
-    `SighashType::try_from` converts it (lines 37–51): the six hash types it names, and an error
-    for any other. -/
+/-- The `SighashType` Zebra's `HashType` converts to: one of the six hash types it names, or
+    `none` for any other bits. `HashType` is in `src/transaction/sighash.rs`, lines 15–35, and
+    `SighashType::try_from` in lines 37–51. -/
 def toSighashType? (hashType : BitVec 32) : Option Transparent.SighashType :=
   if hashType = 0x01 then some ⟨Transparent.SIGHASH_ALL⟩
   else if hashType = 0x02 then some ⟨Transparent.SIGHASH_NONE⟩

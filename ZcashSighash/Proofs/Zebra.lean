@@ -1,8 +1,9 @@
 /-
 What Zebra's signature digests are. Its rebuild of a transaction keeps every field but the
 consensus branch ID, which becomes the network upgrade's, and the transparent authorization,
-which becomes the coins its inputs spend (`fromTransactionWithBranchId_eq`), given that the
-transaction has no bundle the rebuild drops, as none `Transaction::read` returns does. For a
+which becomes the coins its inputs spend (`fromTransactionWithBranchId_eq`). That needs no Sprout
+bundle in version 6 and no Ironwood bundle before it, which holds of every transaction
+`Transaction::read` returns (`read_bundles`). For a
 version 5 or 6 transaction, the network upgrade's branch ID must be the transaction's own
 (`precomputedTxData_new_mismatch`), so the rebuild changes only the authorization, and `sighash`
 gives the specification's signature digest of the transaction spending those coins
@@ -26,6 +27,14 @@ def rebuilt (tx : TransactionData) (branchId : BitVec 32)
     consensusBranchId := branchId
     transparentBundle := tx.transparentBundle.map fun b =>
       { b with authorization := transparentAuth allPreviousOutputs } }
+
+/-- The rebuilt transparent bundle is the transaction's, its authorization replaced. -/
+theorem rebuilt_transparentBundle {tx : TransactionData} {branchId : BitVec 32}
+    {allPreviousOutputs : List Output} {b : Transparent.Bundle} :
+    (rebuilt tx branchId allPreviousOutputs).transparentBundle = some b ↔
+      ∃ b', tx.transparentBundle = some b' ∧
+        { b' with authorization := transparentAuth allPreviousOutputs } = b := by
+  simp only [rebuilt, Option.map_eq_some_iff]
 
 /-- Zebra's identity maps leave a Sapling bundle unchanged. -/
 theorem sapling_mapAuthorization_identity (b : Sapling.Bundle) :
@@ -102,11 +111,11 @@ theorem wellFormed_rebuilt {tx : TransactionData} (h : WellFormed tx) (branchId 
     (allPreviousOutputs : List Output) :
     WellFormed (rebuilt tx branchId allPreviousOutputs) := by
   obtain ⟨hv, htn, hos, hsa, hop, hip, hss, hsn⟩ := h
-  refine ⟨hv, ?_, ?_, hsa, hop, hip, ?_, hsn⟩ <;>
-  · intro b hb
-    simp only [rebuilt, Option.map_eq_some_iff] at hb
-    obtain ⟨b', hb', rfl⟩ := hb
-    first | exact htn b' hb' | exact hos b' hb' | exact hss b' hb'
+  refine ⟨hv, fun b hb => ?_, fun b hb => ?_, hsa, hop, hip, fun b hb => ?_, hsn⟩ <;>
+    obtain ⟨b', hb', rfl⟩ := rebuilt_transparentBundle.mp hb
+  · exact htn b' hb'
+  · exact hos b' hb'
+  · exact hss b' hb'
 
 /-- The coins fit a transaction: one per input, unless its transparent bundle is a coinbase or
     has no inputs, whose digests read no coin; each lock script at most `MAX_COMPACT_SIZE`
@@ -122,8 +131,7 @@ theorem contextFits_rebuilt {tx : TransactionData} {branchId : BitVec 32}
     ∀ b, (rebuilt tx branchId allPreviousOutputs).transparentBundle = some b →
       ContextFitsIfRead b := by
   intro b hb hcb
-  simp only [rebuilt, Option.map_eq_some_iff] at hb
-  obtain ⟨b', hb', rfl⟩ := hb
+  obtain ⟨b', hb', rfl⟩ := rebuilt_transparentBundle.mp hb
   have hl := hf.length b' hb' hcb
   refine ⟨by simp [transparentAuth, hl], by simp [transparentAuth, hl], ?_⟩
   intro s hs'
@@ -137,22 +145,10 @@ theorem read_bundles {ctx : Transparent.AuthorizingContext} {s s' : List Spec.By
     {tx : TransactionData} (h : Read.read ctx s = some (.tx tx, s')) :
     tx.sproutBundle = none ∧ (tx.version ≠ .v6 → tx.ironwoodBundle = none) := by
   obtain ⟨s₁, ⟨-, ht⟩ | ⟨-, ht⟩⟩ := Read.read_tx h
-  · obtain ⟨_, s₁, -, h₁⟩ := Native.Parser.bind_eq_some.mp ht
-    obtain ⟨_, s₂, -, h₂⟩ := Native.Parser.bind_eq_some.mp h₁
-    obtain ⟨_, s₃, -, h₃⟩ := Native.Parser.bind_eq_some.mp h₂
-    obtain ⟨_, s₄, -, h₄⟩ := Native.Parser.bind_eq_some.mp h₃
-    simp only [Native.pure_apply, Option.some.injEq, Prod.mk.injEq] at h₄
-    rw [← h₄.1]
-    exact ⟨rfl, fun _ => rfl⟩
-  · have hv := Read.readV6_version ht
-    obtain ⟨_, s₁, -, h₁⟩ := Native.Parser.bind_eq_some.mp ht
-    obtain ⟨_, s₂, -, h₂⟩ := Native.Parser.bind_eq_some.mp h₁
-    obtain ⟨_, s₃, -, h₃⟩ := Native.Parser.bind_eq_some.mp h₂
-    obtain ⟨_, s₄, -, h₄⟩ := Native.Parser.bind_eq_some.mp h₃
-    obtain ⟨_, s₅, -, h₅⟩ := Native.Parser.bind_eq_some.mp h₄
-    simp only [Native.pure_apply, Option.some.injEq, Prod.mk.injEq] at h₅
-    rw [← h₅.1]
-    exact ⟨rfl, fun hne => absurd hv (by rw [← h₅.1]; exact hne)⟩
+  · obtain ⟨-, hsp, hiw⟩ := Read.readV5_shape ht
+    exact ⟨hsp, fun _ => hiw⟩
+  · obtain ⟨hv, hsp⟩ := Read.readV6_shape ht
+    exact ⟨hsp, fun hne => (hne hv).elim⟩
 
 /-- **Zebra's `PrecomputedTxData::new`, for a version 5 or 6 transaction `Transaction::read`
     returned, under the network upgrade of its own consensus branch ID, holds the specification's
@@ -207,12 +203,11 @@ theorem signatureDigest_shielded_congr {t t' : Spec.Transparent} (h : t = t') (v
         (.shielded : Spec.SignableInput t') := by
   subst h; rfl
 
-/-- **Zebra's shielded signature digest (no input, which Zebra computes with `HashType::ALL`) of
-    a version 5 or 6 transaction `Transaction::read` returned, under the network upgrade of its
-    own consensus branch ID, is the specification's**, for the transaction spending
-    `allPreviousOutputs`, coins that fit it, which need none for a coinbase, as Zebra looks up
-    none for it. A shielded input is hashed with
-    `SIGHASH_ALL` whatever the hash type. -/
+/-- **Zebra's shielded signature digest of a version 5 or 6 transaction `Transaction::read`
+    returned, under its own consensus branch ID, is the specification's**, for the transaction
+    spending `allPreviousOutputs` (`hf`; none for a coinbase, as Zebra looks up none). Zebra
+    computes it with `HashType::ALL`; any of the six hash types gives the same digest, since the
+    shielded digest reads none, and any other panics (`toSighashType?`). -/
 theorem sighash_shielded_eq {ctx : Transparent.AuthorizingContext} {s s' : List Spec.Byte}
     {tx : TransactionData} (h : Read.read ctx s = some (.tx tx, s'))
     (allPreviousOutputs : List Output) (hf : CoinsFit tx allPreviousOutputs)
@@ -239,9 +234,12 @@ theorem sighash_shielded_eq {ctx : Transparent.AuthorizingContext} {s s' : List 
   rfl
 
 /-- **Zebra's signature digest of transparent input `i` of a version 5 or 6 transaction
-    `Transaction::read` returned, not a coinbase, under the network upgrade of its own consensus
-    branch ID, with any hash type ZIP 244 defines and any script code, is the specification's**,
-    for the transaction spending `allPreviousOutputs`, coins that fit it. -/
+    `Transaction::read` returned, under its own consensus branch ID, is the specification's**,
+    for any of the six hash types and any script code. The transaction spends
+    `allPreviousOutputs` (`hf`) and is not a coinbase (`hcb`). The specification's digest exists
+    even for `SIGHASH_SINGLE` without a corresponding output: ruling that out
+    (`SignableInput.Restrictions`) is the signature check's job, as in `transparentSighash?`,
+    and Zebra's callback does it before calling `sighash`. -/
 theorem sighash_transparent_eq {ctx : Transparent.AuthorizingContext} {s s' : List Spec.Byte}
     {tx : TransactionData} (h : Read.read ctx s = some (.tx tx, s'))
     (allPreviousOutputs : List Output) (hf : CoinsFit tx allPreviousOutputs)
@@ -264,21 +262,17 @@ theorem sighash_transparent_eq {ctx : Transparent.AuthorizingContext} {s s' : Li
   obtain ⟨d, hnew, hfit, -⟩ := precomputedTxData_new_eq h allPreviousOutputs hf
   refine ⟨_, hnew, ?_⟩
   have hw := wellFormed_rebuilt (Read.read_wellFormed h) tx.consensusBranchId allPreviousOutputs
-  have hvin : ¬ i.val ≥ b.vin.length := by
-    have := i.isLt
-    simp only [Transparent.Bundle.toSpec, List.length_mapIdx] at this
-    omega
+  have hlt : i.val < b.vin.length := by
+    simpa only [Transparent.Bundle.toSpec, List.length_mapIdx] using i.isLt
+  have hvin : ¬ i.val ≥ b.vin.length := by omega
   have hne : b.vin ≠ [] := fun he => by simp [he] at hvin
   have hc : ContextFits b := contextFits_rebuilt (branchId := tx.consensusBranchId) hf b hb
     (by simp [hcb, hne])
   -- The bundle's authorization is `allPreviousOutputs`', one coin per input.
   have hauth : b.authorization = transparentAuth allPreviousOutputs := by
-    simp only [rebuilt, Option.map_eq_some_iff] at hb
-    obtain ⟨_, -, rfl⟩ := hb
+    obtain ⟨_, -, rfl⟩ := rebuilt_transparentBundle.mp hb
     rfl
   have hi : i.val < allPreviousOutputs.length := by
-    have := i.isLt
-    simp only [Transparent.Bundle.toSpec, List.length_mapIdx] at this
     have := hc.amounts
     simp only [hauth, transparentAuth, List.length_map] at this
     omega

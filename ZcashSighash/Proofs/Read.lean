@@ -261,19 +261,23 @@ theorem read_tx {ctx : Transparent.AuthorizingContext} {s s' : List Byte} {tx : 
       obtain ⟨rfl, rfl⟩ := h
       exact .inr ⟨hv, rfl⟩
 
-/-- `read_v5` gives a transaction of the version it is passed. -/
-theorem readV5_version {ctx : Transparent.AuthorizingContext} {v : TxVersion} {s s' : List Byte}
-    {tx : TransactionData} (h : readV5 ctx v s = some (tx, s')) : tx.version = v := by
+/-- `read_v5` gives a transaction of the version it is passed, with no Sprout or Ironwood
+    bundle. -/
+theorem readV5_shape {ctx : Transparent.AuthorizingContext} {v : TxVersion} {s s' : List Byte}
+    {tx : TransactionData} (h : readV5 ctx v s = some (tx, s')) :
+    tx.version = v ∧ tx.sproutBundle = none ∧ tx.ironwoodBundle = none := by
   obtain ⟨_, s₁, -, h₁⟩ := Parser.bind_eq_some.mp h
   obtain ⟨_, s₂, -, h₂⟩ := Parser.bind_eq_some.mp h₁
   obtain ⟨_, s₃, -, h₃⟩ := Parser.bind_eq_some.mp h₂
   obtain ⟨_, s₄, -, h₄⟩ := Parser.bind_eq_some.mp h₃
   simp only [pure_apply, Option.some.injEq, Prod.mk.injEq] at h₄
   rw [← h₄.1]
+  exact ⟨rfl, rfl, rfl⟩
 
-/-- `read_v6` gives a transaction of the version it is passed. -/
-theorem readV6_version {ctx : Transparent.AuthorizingContext} {v : TxVersion} {s s' : List Byte}
-    {tx : TransactionData} (h : readV6 ctx v s = some (tx, s')) : tx.version = v := by
+/-- `read_v6` gives a transaction of the version it is passed, with no Sprout bundle. -/
+theorem readV6_shape {ctx : Transparent.AuthorizingContext} {v : TxVersion} {s s' : List Byte}
+    {tx : TransactionData} (h : readV6 ctx v s = some (tx, s')) :
+    tx.version = v ∧ tx.sproutBundle = none := by
   obtain ⟨_, s₁, -, h₁⟩ := Parser.bind_eq_some.mp h
   obtain ⟨_, s₂, -, h₂⟩ := Parser.bind_eq_some.mp h₁
   obtain ⟨_, s₃, -, h₃⟩ := Parser.bind_eq_some.mp h₂
@@ -281,6 +285,17 @@ theorem readV6_version {ctx : Transparent.AuthorizingContext} {v : TxVersion} {s
   obtain ⟨_, s₅, -, h₅⟩ := Parser.bind_eq_some.mp h₄
   simp only [pure_apply, Option.some.injEq, Prod.mk.injEq] at h₅
   rw [← h₅.1]
+  exact ⟨rfl, rfl⟩
+
+/-- `read_v5` gives a transaction of the version it is passed. -/
+theorem readV5_version {ctx : Transparent.AuthorizingContext} {v : TxVersion} {s s' : List Byte}
+    {tx : TransactionData} (h : readV5 ctx v s = some (tx, s')) : tx.version = v :=
+  (readV5_shape h).1
+
+/-- `read_v6` gives a transaction of the version it is passed. -/
+theorem readV6_version {ctx : Transparent.AuthorizingContext} {v : TxVersion} {s s' : List Byte}
+    {tx : TransactionData} (h : readV6 ctx v s = some (tx, s')) : tx.version = v :=
+  (readV6_shape h).1
 
 /-- **A transaction `Transaction::read` returns begins with `TxVersion::write`'s encoding of its
     version**: the version whose digest rules apply is the one its bytes encode. -/

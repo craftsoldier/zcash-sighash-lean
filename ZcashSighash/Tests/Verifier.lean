@@ -6,13 +6,15 @@ The transcribed `zcash_primitives` on ZIP 244's test vectors, as its own test do
 `SIGHASH_SINGLE` digest, the crate still computes one, as its test skips it. Likewise the crates'
 own transactions' digests, and `v4_signature_hash` on ZIP 143's and ZIP 243's vectors
 (`zip_0143`, `zip_0243`, lines 1084–1148). Then `Transaction::read`: on ZIP 244's vectors and the
-crates' own, truncated, on version headers, and on values at the edges of their range. Last,
-Zebra's `sighash` on what the reader reads from ZIP 244's vectors and from the NU7 transactions of
-`zebra-chain`'s own test, and its `sighash_v4_raw` on ZIP 143's and ZIP 243's vectors.
+crates' own, truncated, and on version headers; `Transaction::write` on what it read; and the
+reader on values at the edges of their range. Last, Zebra's `sighash` on what the reader reads
+from ZIP 244's vectors and from the NU7 transactions of `zebra-chain`'s own test, and its
+`sighash_v4_raw` on ZIP 143's and ZIP 243's vectors.
 -/
 import ZcashSighash.Verifier.Zakura
 import ZcashSighash.Verifier.Read
 import ZcashSighash.Verifier.Zebra
+import ZcashSighash.Verifier.Write
 import ZcashSighash.Tests.Spec
 
 namespace ZcashSighash.Tests
@@ -258,9 +260,12 @@ def checkRead (ctx : Transparent.AuthorizingContext) (bytes rest : List Byte) (t
   ⟨v.amounts.map (BitVec.ofNat 64), v.scriptPubKeys.map fun s => ⟨hex s⟩⟩ (hex v.tx) []
   v.txid (some v.authDigest)) = List.replicate 10 true
 
-/- The version 5 transaction's encoding (`zcash_primitives` 0.31.0, `src/transaction/tests.rs`,
-   line 124): as its test checks (lines 155–162), the reader leaves nothing. -/
-#guard checkRead ⟨[], []⟩ (hex "050000800a27a726d90a197700000000010000000000000000") []
+/-- The version 5 transaction's encoding (`zcash_primitives` 0.31.0, `src/transaction/tests.rs`,
+    line 124). -/
+def v5Encoded : List Byte := hex "050000800a27a726d90a197700000000010000000000000000"
+
+/- As its test checks (lines 155–162): the reader leaves nothing. -/
+#guard checkRead ⟨[], []⟩ v5Encoded []
   "328d975581fbf002206ef6f0b69fe57fb47f40ec31c59ac62c3565d4e259e128" none
 
 /-- The first version 6 transaction's encoding (`zcash_primitives` 0.31.0,
@@ -274,12 +279,14 @@ def v6Trailer : List Byte := (ascii "next-record" 11).toList
   "78296c68a370c2e1f058d997c81c7b011c4562c52fc5ca2994ad59cd179fbe9e" none
 #guard (List.range v6Encoded.length).all fun n => (Read.read ⟨[], []⟩ (v6Encoded.take n)).isNone
 
-/- The second version 6 transaction's encoding (`zakura-primitives` 4.0.0,
-   `src/transaction/tests.rs`, line 60), read by `zcash_primitives`' reader. -/
-#guard checkRead ⟨[], []⟩
-  (hex ("0600008098b684d85b16a5370100000002000000010000000000000000000000" ++
-    "0000000000000000000000000000000000000000000000000000ffffffff0150c3000000000000015100000000"))
-  []
+/-- The second version 6 transaction's encoding (`zakura-primitives` 4.0.0,
+    `src/transaction/tests.rs`, line 60). -/
+def zakuraV6Encoded : List Byte :=
+  hex ("0600008098b684d85b16a5370100000002000000010000000000000000000000" ++
+    "0000000000000000000000000000000000000000000000000000ffffffff0150c3000000000000015100000000")
+
+/- Read by `zcash_primitives`' reader. -/
+#guard checkRead ⟨[], []⟩ zakuraV6Encoded []
   "e11e16887d9aea199fc4eaa3b371c6868ded3e9a2b1c3393a7b0c15f79e73179"
   (some "454423cf6de9acb289a60852144679176cea3bd5e5ec51526d483ced2533e73a")
 
@@ -307,6 +314,63 @@ def readsVersion (bytes : List Byte) (p : TxVersion → Bool) : Bool :=
 #guard (Read.readTxVersion (hex "0600008068636174")).isNone
 #guard (Read.readTxVersion (hex "0700008068636174")).isNone
 #guard (Read.readTxVersion (hex "00000000")).isNone
+
+/-! ## `Transaction::write` -/
+
+/-- Whether `Transaction::write` writes back exactly the bytes `Transaction::read` read. -/
+def checkWrite (bytes : List Byte) : Bool :=
+  match Read.read ⟨[], []⟩ bytes with
+  | some (.tx tx, []) =>
+    match tx.write ([] : VecU8) with
+    | .ok w => w == bytes
+    | .error _ => false
+  | _ => false
+
+#guard zip244Vectors.all fun v => checkWrite (hex v.tx)
+
+/- The crates' own: `zcash_primitives` 0.31.0's `tx_bytes(&tx) == encoded` (`src/transaction/
+   tests.rs`, lines 86 and 153), and `zakura-primitives` 4.0.0's version 6 transaction. -/
+#guard checkWrite v5Encoded
+#guard checkWrite v6Encoded
+#guard checkWrite zakuraV6Encoded
+
+/-- A version 6 transaction under consensus branch ID `branchId`, with one Action in its Ironwood
+    bundle if `ironwood`, or in its Orchard bundle otherwise, zero bytes but for its header. -/
+def withV6Action (branchId : BitVec 32) (ironwood : Bool) : List Byte :=
+  let bundle := hex "01" ++ List.replicate 820 0 ++ List.replicate 42 0 ++ List.replicate 128 0
+  hex "0600008098b684d8" ++ toLeBytes 4 branchId ++ hex "0000000001000000" ++ hex "00000000" ++
+    if ironwood then hex "00" ++ bundle else bundle ++ hex "00"
+
+/-- What `Transaction::write` writes of what `Transaction::read` read from `withV6Action`:
+    whether its bytes are the ones read, or none for a write error. -/
+def writesV6Action (branchId : BitVec 32) (ironwood : Bool) : Option (Option Bool) :=
+  match Read.read ⟨[], []⟩ (withV6Action branchId ironwood) with
+  | some (.tx tx, []) =>
+    match tx.write ([] : VecU8) with
+    | .ok w => some (some (w == withV6Action branchId ironwood))
+    | .error _ => some none
+  | _ => none
+
+/- `write_v6_bundle` writes back an Orchard bundle read under NU6.3 (`0x37A5165B`) or NU7
+   (`0x77190AD9`), whose bundle version is `orchard_v3`, and rejects one read under NU5, NU6 or
+   NU6.1 (`orchard_insecure_v1`) or NU6.2 (`orchard_v2`), as Zebra does when it parses them. An
+   Ironwood bundle, `ironwood_v3` from NU6.3 on, is written back, and has no version before. A
+   bundle with no version, as under Canopy, the crate's `read_bundle` already rejects
+   (`components/orchard.rs`, lines 114–120), as it would every fixture here for its zero-byte
+   points; these test the transcription. -/
+#guard writesV6Action 0x37A5165B false == some (some true)
+#guard writesV6Action 0x77190AD9 false == some (some true)
+#guard writesV6Action 0xC2D6D0B4 false == some none
+#guard writesV6Action 0xC8E71055 false == some none
+#guard writesV6Action 0x4DEC4DF0 false == some none
+#guard writesV6Action 0x5437F330 false == some none
+#guard writesV6Action 0xE9FF75A6 false == some none
+#guard writesV6Action 0x37A5165B true == some (some true)
+#guard writesV6Action 0x77190AD9 true == some (some true)
+#guard writesV6Action 0x5437F330 true == some none
+#guard writesV6Action 0xC2D6D0B4 true == some none
+
+/-! ## Values -/
 
 /-- A version 5 transaction with one Sapling Output, zero bytes but for its header and its value
     balance `vb`. -/
@@ -466,8 +530,7 @@ def checkZebraNu7 (bytes : List Byte) (digest : String) : Bool :=
 
 /- `zebra-chain` 15.0.0's `nu7_branch_id_and_transaction_formats` (`src/parameters/tests.rs`,
    lines 175–239), on both NU7 transactions. -/
-#guard checkZebraNu7 (hex "050000800a27a726d90a197700000000010000000000000000")
-  "328d975581fbf002206ef6f0b69fe57fb47f40ec31c59ac62c3565d4e259e128"
+#guard checkZebraNu7 v5Encoded "328d975581fbf002206ef6f0b69fe57fb47f40ec31c59ac62c3565d4e259e128"
 #guard checkZebraNu7 v6Encoded "78296c68a370c2e1f058d997c81c7b011c4562c52fc5ca2994ad59cd179fbe9e"
 
 end ZcashSighash.Tests

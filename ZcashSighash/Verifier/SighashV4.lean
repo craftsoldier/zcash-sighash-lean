@@ -19,6 +19,12 @@ open Spec (Byte Bytes personal)
 open Transparent (SIGHASH_ANYONECANPAY SIGHASH_MASK SIGHASH_NONE SIGHASH_SINGLE)
 open Orchard (update finalize)
 
+/-- `TxVersion::has_sprout` (`mod.rs`, lines 157–166). -/
+def TxVersion.hasSprout : TxVersion → Bool
+  | .sprout v => v.toNat ≥ 2
+  | .v3 | .v4 => true
+  | .v5 | .v6 => false
+
 /-- `TxVersion::has_overwinter` (`mod.rs`, lines 168–170). -/
 def TxVersion.hasOverwinter : TxVersion → Bool
   | .sprout _ => false

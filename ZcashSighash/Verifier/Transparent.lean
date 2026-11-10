@@ -45,6 +45,12 @@ structure TxIn where
   scriptSig : Script
   sequence : BitVec 32
 
+/-- `TxIn::write` (`src/bundle.rs`, lines 275–279). -/
+def TxIn.write {W : Type} [Write W] (self : TxIn) (writer : W) : IoResult W := do
+  let writer ← self.prevout.write writer
+  let writer ← self.scriptSig.write writer
+  Write.writeAll writer (toLeBytes 4 self.sequence)
+
 /-- `TxOut` (`src/bundle.rs`, lines 368–373), its value a `Zatoshis`. -/
 structure TxOut where
   value : BitVec 64

@@ -25,6 +25,8 @@
 * `Verifier/Read.lean`: librustzcash's reader for version 5 and 6 transactions.
 * `Proofs/Read.lean`: every transaction it reads meets the digest theorems' hypotheses, and its
   values are in range.
+* `Verifier/Write.lean`: librustzcash's writer, for every version.
+* `Proofs/Write.lean`: it writes back the bytes the reader read, and the reader reads them back.
 * `Verifier/Zebra.lean`: Zebra's signature digests, of the transaction rebuilt.
 * `Proofs/Zebra.lean`: for a transaction the reader returns, under its own branch ID, and coins
   that fit it, they are the specification's.
@@ -45,6 +47,7 @@ public import ZcashSighash.Proofs.BlockCommitment
 public import ZcashSighash.Proofs.Parse
 public import ZcashSighash.Proofs.Read
 public import ZcashSighash.Proofs.Zebra
+public import ZcashSighash.Proofs.Write
 public import ZcashSighash.Verifier.Blake2b
 public import ZcashSighash.Verifier.Encoding
 public import ZcashSighash.Verifier.Transparent
@@ -61,3 +64,4 @@ public import ZcashSighash.Verifier.PushNum
 public import ZcashSighash.Verifier.Parse
 public import ZcashSighash.Verifier.Read
 public import ZcashSighash.Verifier.Zebra
+public import ZcashSighash.Verifier.Write

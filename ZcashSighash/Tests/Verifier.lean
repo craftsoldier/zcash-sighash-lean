@@ -6,10 +6,13 @@ The transcribed `zcash_primitives` on ZIP 244's test vectors, as its own test do
 `SIGHASH_SINGLE` digest, the crate still computes one, as its test skips it. Likewise the crates'
 own transactions' digests, and `v4_signature_hash` on ZIP 143's and ZIP 243's vectors
 (`zip_0143`, `zip_0243`, lines 1084–1148). Then `Transaction::read`: on ZIP 244's vectors and the
-crates' own, truncated, and on version headers; `Transaction::write` on what it read; and the
-reader on values at the edges of their range. Last, Zebra's `sighash` on what the reader reads
-from ZIP 244's vectors and from the NU7 transactions of `zebra-chain`'s own test, and its
-`sighash_v4_raw` on ZIP 143's and ZIP 243's vectors.
+crates' own, truncated, and on version headers; on the crate's version 4 transaction, its
+identifier and truncations; on ZIP 143's and ZIP 243's, their digests; on versions 1 and 2 and a
+version 5 without the overwintered bit; and on the value balance `read_v4` drops.
+`Transaction::write` on what it read, and the reader on values at the edges of their range.
+Last, Zebra's `sighash` on what the reader reads from ZIP 244's vectors and from the NU7
+transactions of `zebra-chain`'s own test, and its `sighash_v4_raw` on ZIP 143's and ZIP 243's
+vectors.
 -/
 import ZcashSighash.Verifier.Zakura
 import ZcashSighash.Verifier.Read
@@ -246,7 +249,7 @@ def checkZakuraLegacy (v : LegacyVector) : Bool :=
     digest `authDigest`, leaving `rest`. -/
 def checkRead (ctx : Transparent.AuthorizingContext) (bytes rest : List Byte) (txid : String)
     (authDigest : Option String) : Bool :=
-  match Read.read ctx (bytes ++ rest) with
+  match Read.read ctx 0 (bytes ++ rest) with
   | some (.tx tx, rest') =>
     rest' == rest &&
     match tx.txIdDigests with
@@ -277,7 +280,7 @@ def v6Trailer : List Byte := (ascii "next-record" 11).toList
    error. -/
 #guard checkRead ⟨[], []⟩ v6Encoded v6Trailer
   "78296c68a370c2e1f058d997c81c7b011c4562c52fc5ca2994ad59cd179fbe9e" none
-#guard (List.range v6Encoded.length).all fun n => (Read.read ⟨[], []⟩ (v6Encoded.take n)).isNone
+#guard (List.range v6Encoded.length).all fun n => (Read.read ⟨[], []⟩ 0 (v6Encoded.take n)).isNone
 
 /-- The second version 6 transaction's encoding (`zakura-primitives` 4.0.0,
     `src/transaction/tests.rs`, line 60). -/
@@ -290,24 +293,18 @@ def zakuraV6Encoded : List Byte :=
   "e11e16887d9aea199fc4eaa3b371c6868ded3e9a2b1c3393a7b0c15f79e73179"
   (some "454423cf6de9acb289a60852144679176cea3bd5e5ec51526d483ced2533e73a")
 
-/-- Whether `Transaction::read` hands `bytes` to `read_v4`, with a version that `p` accepts. -/
-def readsV4 (bytes : List Byte) (p : TxVersion → Bool) : Bool :=
-  match Read.read ⟨[], []⟩ bytes with
-  | some (.readV4 v, _) => p v
-  | _ => false
-
 /-- Whether `TxVersion::read` reads all of `bytes` as a version that `p` accepts. -/
 def readsVersion (bytes : List Byte) (p : TxVersion → Bool) : Bool :=
   match Read.readTxVersion bytes with
   | some (v, []) => p v
   | _ => false
 
-/- A header without the overwintered bit is a pre-Overwinter version, whatever its number, and
-   goes to `read_v4`, as versions 3 and 4 do; with it, the version group ID must be the version's
-   own, and version 7 (`nutachyon` only) is unknown; a version of 0 is an error. -/
-#guard readsV4 (hex "05000000") fun | .sprout v => v == 5 | _ => false
-#guard readsV4 (hex "030000807082c403") fun | .v3 => true | _ => false
-#guard readsV4 (hex "0400008085202f89") fun | .v4 => true | _ => false
+/- A header without the overwintered bit is a pre-Overwinter version, whatever its number, which
+   `read_v4` reads, as it does versions 3 and 4; with it, the version group ID must be the
+   version's own, and version 7 (`nutachyon` only) is unknown; a version of 0 is an error. -/
+#guard readsVersion (hex "05000000") fun | .sprout v => v == 5 | _ => false
+#guard readsVersion (hex "030000807082c403") fun | .v3 => true | _ => false
+#guard readsVersion (hex "0400008085202f89") fun | .v4 => true | _ => false
 #guard readsVersion (hex "050000800a27a726") fun | .v5 => true | _ => false
 #guard (Read.readTxVersion (hex "0500008098b684d8")).isNone
 #guard readsVersion (hex "0600008098b684d8") fun | .v6 => true | _ => false
@@ -315,11 +312,136 @@ def readsVersion (bytes : List Byte) (p : TxVersion → Bool) : Bool :=
 #guard (Read.readTxVersion (hex "0700008068636174")).isNone
 #guard (Read.readTxVersion (hex "00000000")).isNone
 
+/-! ## Versions 1 to 4 -/
+
+/-- `zcash_primitives` 0.31.0's `tx_read_write` transaction (`src/transaction/tests/data.rs`,
+    lines 1–140): a version 4 transaction of testnet block 280003. -/
+def txReadWrite : List Byte := hex
+  "0400008085202f89018f642996df1e93a6d79ae5baae3493f423ca6c82e99f3e8d9524fa78bcf16167000000006b\
+    483045022100b65e37229707d9cd483940d2ab8bdc0b74b12dda66d02dbdf36fd383b9602a5102204be7fd7a39a4\
+    a42dff071a5a2bc51b492d33f0bc394bc87861e1bcaaf2bac93b01210248e78bdc18f1a83110c12e4008b7640269\
+    61b168fe8d5a8d947efe6af83cc88effffffff01f0f27018020000001976a914a284d0511d0e520d36f444a36c10\
+    bf54b4b017cd88ac00000000d7450400000000000000000000000100ca9a3b0000000000000000000000001331a3\
+    059e66aa6ca97a62f56ea234207568566f6971b3722ae0dd82c00399692aacb5fb12ac580ac26624a8cf0a904cd6\
+    f4bfea55625205cb58f06b1c197423280deac74eea97598c4314d899a4fd85311e046257d2d4c297f1406cf709d9\
+    2a8607f7698d45fe9f41dea3a0571c5da5cfa78e18ebf580c36179d9d6e6320a348f146c407adab4cb310392a5f5\
+    b5ab283b78343ba91abc7c4bfe23a3dbaf8037c676e595a26574b1813bc2bf2d2e911f6f3abb0ba6bcac7a2901fb\
+    dce65fb07b5636017ef14dff44cdeea730477294f2f8619bd3d5e6be4898bf8d39c0e0eae5a36864625206b9a8f9\
+    940bf16650def7926eb0db43b7d7615e4774cf109482f2e807fee6c0c884e8314c67c5d85f4c229cdeab1e964cf0\
+    c1adcb47cebfc7c067a0f3c806814a285edbb624f4710629098944ac75e7c9cbc56bd0a029e1110eac60cb4077eb\
+    f108fe3e67cd061391e5d6916d5f41c02b8914c12cf605db7d959226e2e8ff71263b9af4c59b0f4db315b74ca2b0\
+    b7d25213d5293954c3e51172370fb6c35abe9ce36ef253e3a72e19dac9bd7362c44992974215c82cb90c99488dbd\
+    e11963e857cea6b81b8eaae34b7cf5a97d6b60d49fdfa20f5f3c120ef382ca2469604fb0c6842c6d4fae9661665b\
+    5cbc612cef132f88fb7da393f356e3ad13fc3557980a7734231453e44079042fb432f55e751484d5d6d30fbc4f99\
+    9013d5d4f2fb62f7144e8dcd2ae59546cc4379ad9f1859ef80dec66b1a9b0b7fd2c47bd38302d29c31990329a895\
+    876ed1d84db757856e75ce9a1dc7c7472bc218fb8d7c7d028bb02f10efe7fe6a8c9ce034fea66b909c8d4126251c\
+    7d6e54f4cfc778cd4f0e0bad1096176f2dd45c45cbe15e118f90ff2545f832f23698f2c9531b52655a4c0c895355\
+    9928eedfc756c365cf929b8447dcdc7d823849e02ff68b6278d7542ce0f1070bb1ad913c1a353625f5d35b14cfec\
+    84a633d7fe25256dcffe92f9a6f0fe00caaaa5b39cc2ab06768a42a5b40083cea01c96b3e68d0f6a587eaf2da6fd\
+    adc82527f186a60471ce98e27d2b11efc47998f3030a7a2e5d0b0a7eb80f6bd0e4b9c8367c6c522d9415f8caec7b\
+    0a7318d53dce391cf7e7389c9a74aa6a4c217c288519af81ba2122ca0c5840cc02cf1bcf150cd3df33c0acfd0053\
+    e668b926561b924098d97aaab57ee1113df966a422ef9b014617bceef05fb6468e330e2dece3f375e98ef03e5b18\
+    a953e2301fccec86200ae432c9c12c30775437f3629714a9fabeb53289402b7fd386cef2b1146723a89d0f81651e\
+    00caea2f3ac9eefefb868d85ed2354f530fe38fe3a3a6aab47d42dc21329e3ad1b9d06c0c8d6537456f54ad0453f\
+    444175d87ef5cdd1694662e0a1e6e3632ed7a8e76bc7b1b5a418f086d340815ec398f092e97869f5e201c22c8791\
+    8f766a3532eb9a4fc9acf196cbc2d0285119a4216d2581cd2d91bcdce868c468f6f34cf49e3a56ce249a2fd8cf36\
+    b01b0f77de722bbce267e3e5521688e65222235c91c263d80e28297e929d885b7b9c1a1654b2d0b87577c9a1c725\
+    f54415dc5f52dde0695f9f6dcb4b6ee3e3ea702904c11ff92f55534c7ef98ce793d74756a45d4e320a425e982d5b\
+    372d6a8d41fb86ba5164816832a481825c8c6ad7270969859e55d2367535060f99857065170466bdb70cb93ab2f9\
+    c0e293a0a919843bbf34c2fe61b0c3e32aa7078e83d4c1929e1e1d86141cdeb18920910975db3a7626820599630c\
+    423ade233d5d60685524e8d8032b861b4aad2002a8fd17c9282b825f02d353e291379ced00ebaa3c03e01d9c59f4\
+    05099d1c3432bad06358d6b1942f0baf710998d10a22d155b0fe849952893126949ff92de3a4c2eeafdf688435e3\
+    25d81c2ce008cf6c76030d4d46342ac3372c73986560c4ec35a6f649ef02c11936b7039bc6f5d09438dbe476251b\
+    5964b68f02eedff7a9e0ed3e3090965a22f2c552ce3b2b474fd2fc06b50927830a05a303faffd68482d7b7853843\
+    2540dd3261ab759b6582129a7f18d801c54319ca52a3c6a3db635044d625e24038ad4277f8d5bf016035165f21b0\
+    70e8169d657d6ed1fa7f8ed09b4e1d9ca2e51a24da55e43b3fca9859b2408c26aacbad749ebe882c31e7205e638b\
+    b7e2bfc8a3f1c02c0ca7bb9daaab7fcbf845d8002c3de79924dcaadc24bdc0082f4a6b61876f3192a881f59a682d\
+    273685d4795c9bd7cccf49de34443a9f9cb35bbf254c50611b7c1324b11094667b6b608c39d1252cebcc4877ceea\
+    76e19b842b67f626743fab297776cc9cf79e90e8fce1001790c2e7d5c958647cca5d3397d20afcf29ba44f62a7c6\
+    2e908d848d81a79fadbb370aba93b03e41d4bc49e299d6d33faf869f36371414ce646fc2ca6dcff55a6e0639d50c\
+    aeb114c418c626b86715436481d1928d55a756a603e7110c3afe963c2b29a478f9d4397b885a67b093a345796219\
+    c111b7e94db390aa4bb76b66a534e5e2679b27db5f95fd09a36b05"
+
+/- As its test checks (`src/transaction/tests.rs`, lines 215–226): `Transaction::read` reads all
+   of it under Canopy (`0xE9FF75A6`), with the identifier it displays byte-reversed, and `write`
+   writes it back. -/
+#guard match Read.read ⟨[], []⟩ 0xE9FF75A6 txReadWrite with
+  | some (.v4 tx txid, []) =>
+    txid.reverse == hex "64f0bd7fe30ce23753358fe3a2dc835b8fba9c0274c4e2c54a6f73114cb55639" &&
+    match tx.write ([] : VecU8) with
+    | .ok w => w == txReadWrite
+    | .error _ => false
+  | _ => false
+
+/-- Whether `v4_signature_hash` of what `Transaction::read` reads from the vector, under its branch
+    ID, is the vector's digest, as `zip_0143` and `zip_0243` read and hash it (lines 1085–1148),
+    and whether `write` writes back what was read. -/
+def checkReadV4 (v : LegacyVector) : Bool :=
+  match Read.read ⟨[], []⟩ (.ofNat _ v.branch.id) (hex v.tx) with
+  | some (.v4 tx _, []) =>
+    let input? : Option SignableInput := match v.transparentInput, tx.transparentBundle with
+      | none, _ => some .shielded
+      | some i, some bundle =>
+        match Transparent.SighashType.parse (.ofNat _ v.hashType) with
+        | none => none
+        | some hashType =>
+          match Transparent.SignableInput.fromParts bundle hashType i ⟨hex v.scriptCode⟩
+              ⟨hex v.scriptCode⟩ (.ofNat _ v.amount) with
+          | .ok input => some (.transparent input)
+          | .error _ => none
+      | some _, none => none
+    (match input?, zip143Digests tx with
+      | some input, some digests => v4SignatureHash tx input digests == some (hex v.sighash)
+      | _, _ => false) &&
+    match tx.write ([] : VecU8) with
+    | .ok w => w == hex v.tx
+    | .error _ => false
+  | _ => false
+
+#guard (zip143Vectors ++ zip243Vectors).map checkReadV4 = List.replicate 20 true
+
+/-- Whether `Transaction::read` reads all of `bytes` as a transaction of version 1 to 4, and
+    `write` writes `bytes` back. -/
+def checkV4RoundTrip (bytes : List Byte) : Bool :=
+  match Read.read ⟨[], []⟩ 0 bytes with
+  | some (.v4 tx _, []) =>
+    match tx.write ([] : VecU8) with
+    | .ok w => w == bytes
+    | .error _ => false
+  | _ => false
+
+/- A version 1 transaction, which has no JoinSplits, a version 2 one with one JoinSplit and its
+   BCTV14 proof, and a version 5 one without the overwintered bit, which `read` hands to
+   `read_v4` as version 2's kind, zero bytes but for the header and the counts. -/
+#guard checkV4RoundTrip (hex "01000000" ++ hex "0000" ++ hex "00000000")
+#guard checkV4RoundTrip (hex "02000000" ++ hex "0000" ++ hex "00000000" ++ hex "01" ++
+  List.replicate 1802 0 ++ List.replicate 96 0)
+#guard checkV4RoundTrip (hex "05000000" ++ hex "0000" ++ hex "00000000" ++ hex "00")
+
+/- `Transaction::read` rejects every truncation of the crate's version 4 transaction. -/
+#guard (List.range txReadWrite.length).all fun n =>
+  (Read.read ⟨[], []⟩ 0xE9FF75A6 (txReadWrite.take n)).isNone
+
+/-- A version 4 transaction with no Sapling Spend or Output and a value balance of 1. -/
+def droppedValueBalance : List Byte :=
+  hex "0400008085202f89" ++ hex "0000" ++ hex "0000000000000000" ++ toLeBytes 8 (1 : BitVec 64) ++
+    hex "000000"
+
+/- With no Sapling Spend or Output, `read_v4` reads the value balance and drops it, and `write`
+   writes zero in its place: the bytes written back are not the ones read. -/
+#guard match Read.read ⟨[], []⟩ 0 droppedValueBalance with
+  | some (.v4 tx _, []) =>
+    match tx.write ([] : VecU8) with
+    | .ok w => w == hex "0400008085202f89" ++ hex "0000" ++ hex "0000000000000000" ++
+        toLeBytes 8 (0 : BitVec 64) ++ hex "000000"
+    | .error _ => false
+  | _ => false
+
 /-! ## `Transaction::write` -/
 
 /-- Whether `Transaction::write` writes back exactly the bytes `Transaction::read` read. -/
 def checkWrite (bytes : List Byte) : Bool :=
-  match Read.read ⟨[], []⟩ bytes with
+  match Read.read ⟨[], []⟩ 0 bytes with
   | some (.tx tx, []) =>
     match tx.write ([] : VecU8) with
     | .ok w => w == bytes
@@ -344,7 +466,7 @@ def withV6Action (branchId : BitVec 32) (ironwood : Bool) : List Byte :=
 /-- What `Transaction::write` writes of what `Transaction::read` read from `withV6Action`:
     whether its bytes are the ones read, or none for a write error. -/
 def writesV6Action (branchId : BitVec 32) (ironwood : Bool) : Option (Option Bool) :=
-  match Read.read ⟨[], []⟩ (withV6Action branchId ironwood) with
+  match Read.read ⟨[], []⟩ 0 (withV6Action branchId ironwood) with
   | some (.tx tx, []) =>
     match tx.write ([] : VecU8) with
     | .ok w => some (some (w == withV6Action branchId ironwood))
@@ -381,7 +503,7 @@ def withValueBalance (vb : BitVec 64) : List Byte :=
 /-- Whether `Transaction::read` reads all of `withValueBalance vb`, into a transaction whose
     Sapling value balance is `vb`. -/
 def readsValueBalance (vb : BitVec 64) : Bool :=
-  match Read.read ⟨[], []⟩ (withValueBalance vb) with
+  match Read.read ⟨[], []⟩ 0 (withValueBalance vb) with
   | some (.tx tx, []) => (tx.saplingBundle.map (·.valueBalance)) == some vb
   | _ => false
 
@@ -392,9 +514,9 @@ def readsValueBalance (vb : BitVec 64) : Bool :=
 #guard readsValueBalance (.ofInt 64 2100000000000000)
 #guard readsValueBalance (.ofInt 64 (-2100000000000000))
 #guard readsValueBalance (.ofInt 64 (-1))
-#guard (Read.read ⟨[], []⟩ (withValueBalance (.ofInt 64 2100000000000001))).isNone
-#guard (Read.read ⟨[], []⟩ (withValueBalance (.ofInt 64 (-2100000000000001)))).isNone
-#guard (Read.read ⟨[], []⟩ (withValueBalance (.ofNat 64 (2 ^ 63)))).isNone
+#guard (Read.read ⟨[], []⟩ 0 (withValueBalance (.ofInt 64 2100000000000001))).isNone
+#guard (Read.read ⟨[], []⟩ 0 (withValueBalance (.ofInt 64 (-2100000000000001)))).isNone
+#guard (Read.read ⟨[], []⟩ 0 (withValueBalance (.ofNat 64 (2 ^ 63)))).isNone
 
 /-- A version 5 transaction with one Orchard Action, zero bytes but for its header and its value
     balance `vb`. -/
@@ -405,7 +527,7 @@ def withOrchardValueBalance (vb : BitVec 64) : List Byte :=
 /-- Whether `Transaction::read` reads all of `withOrchardValueBalance vb`, into a transaction whose
     Orchard value balance is `vb`. -/
 def readsOrchardValueBalance (vb : BitVec 64) : Bool :=
-  match Read.read ⟨[], []⟩ (withOrchardValueBalance vb) with
+  match Read.read ⟨[], []⟩ 0 (withOrchardValueBalance vb) with
   | some (.tx tx, []) => (tx.orchardBundle.map (·.valueBalance)) == some vb
   | _ => false
 
@@ -415,9 +537,9 @@ def readsOrchardValueBalance (vb : BitVec 64) : Bool :=
 #guard readsOrchardValueBalance (.ofInt 64 2100000000000000)
 #guard readsOrchardValueBalance (.ofInt 64 (-2100000000000000))
 #guard readsOrchardValueBalance (.ofInt 64 (-1))
-#guard (Read.read ⟨[], []⟩ (withOrchardValueBalance (.ofInt 64 2100000000000001))).isNone
-#guard (Read.read ⟨[], []⟩ (withOrchardValueBalance (.ofInt 64 (-2100000000000001)))).isNone
-#guard (Read.read ⟨[], []⟩ (withOrchardValueBalance (.ofNat 64 (2 ^ 63)))).isNone
+#guard (Read.read ⟨[], []⟩ 0 (withOrchardValueBalance (.ofInt 64 2100000000000001))).isNone
+#guard (Read.read ⟨[], []⟩ 0 (withOrchardValueBalance (.ofInt 64 (-2100000000000001)))).isNone
+#guard (Read.read ⟨[], []⟩ 0 (withOrchardValueBalance (.ofNat 64 (2 ^ 63)))).isNone
 
 /-- A version 6 transaction with one Ironwood Action, zero bytes but for its header and its value
     balance `vb`. -/
@@ -428,15 +550,15 @@ def withIronwoodValueBalance (vb : BitVec 64) : List Byte :=
 /-- Whether `Transaction::read` reads all of `withIronwoodValueBalance vb`, into a transaction whose
     Ironwood value balance is `vb`. -/
 def readsIronwoodValueBalance (vb : BitVec 64) : Bool :=
-  match Read.read ⟨[], []⟩ (withIronwoodValueBalance vb) with
+  match Read.read ⟨[], []⟩ 0 (withIronwoodValueBalance vb) with
   | some (.tx tx, []) => (tx.ironwoodBundle.map (·.valueBalance)) == some vb
   | _ => false
 
 /- The same of an Ironwood value balance. -/
 #guard readsIronwoodValueBalance (.ofInt 64 2100000000000000)
 #guard readsIronwoodValueBalance (.ofInt 64 (-2100000000000000))
-#guard (Read.read ⟨[], []⟩ (withIronwoodValueBalance (.ofInt 64 2100000000000001))).isNone
-#guard (Read.read ⟨[], []⟩ (withIronwoodValueBalance (.ofInt 64 (-2100000000000001)))).isNone
+#guard (Read.read ⟨[], []⟩ 0 (withIronwoodValueBalance (.ofInt 64 2100000000000001))).isNone
+#guard (Read.read ⟨[], []⟩ 0 (withIronwoodValueBalance (.ofInt 64 (-2100000000000001)))).isNone
 
 /-- A version 5 transaction with one transparent output of value `v`, and nothing else. -/
 def withOutputValue (v : BitVec 64) : List Byte :=
@@ -446,7 +568,7 @@ def withOutputValue (v : BitVec 64) : List Byte :=
 /-- Whether `Transaction::read` reads all of `withOutputValue v`, into a transaction whose output
     has value `v`. -/
 def readsOutputValue (v : BitVec 64) : Bool :=
-  match Read.read ⟨[], []⟩ (withOutputValue v) with
+  match Read.read ⟨[], []⟩ 0 (withOutputValue v) with
   | some (.tx tx, []) => (tx.transparentBundle.map (·.vout.map (·.value))) == some [v]
   | _ => false
 
@@ -455,8 +577,8 @@ def readsOutputValue (v : BitVec 64) : Bool :=
    one; the transcription reads it as unsigned, which accepts the same values. -/
 #guard readsOutputValue (.ofNat 64 2100000000000000)
 #guard readsOutputValue 0
-#guard (Read.read ⟨[], []⟩ (withOutputValue (.ofNat 64 2100000000000001))).isNone
-#guard (Read.read ⟨[], []⟩ (withOutputValue (.ofInt 64 (-1)))).isNone
+#guard (Read.read ⟨[], []⟩ 0 (withOutputValue (.ofNat 64 2100000000000001))).isNone
+#guard (Read.read ⟨[], []⟩ 0 (withOutputValue (.ofInt 64 (-1)))).isNone
 
 /-! ## Zebra -/
 
@@ -473,7 +595,7 @@ def zebraOutput (value : ℕ) (script : List Byte) : Option Zebra.Output :=
     digest, Zebra still computes one. -/
 def checkZebra (v : Zip244Vector) : Bool :=
   match (v.amounts.zip v.scriptPubKeys).mapM (fun (a, s) => zebraOutput a (hex s)),
-    Read.read ⟨[], []⟩ (hex v.tx) with
+    Read.read ⟨[], []⟩ 0 (hex v.tx) with
   | some outs, some (.tx tx, []) =>
     let coinbase := (tx.transparentBundle.map fun b : Transparent.Bundle => b.isCoinbase).getD false
     let outs := if coinbase then [] else outs
@@ -518,7 +640,7 @@ def checkZebraV4 (v : LegacyVector) : Bool :=
     NU7 (branch ID `0x77190AD9`), and rejects it under NU6.3 (`0x37A5165B`; `zebra-chain`
     15.0.0, `src/parameters/network_upgrade.rs`, lines 243 and 245). -/
 def checkZebraNu7 (bytes : List Byte) (digest : String) : Bool :=
-  match Read.read ⟨[], []⟩ bytes with
+  match Read.read ⟨[], []⟩ 0 bytes with
   | some (.tx tx, []) =>
     (match Zebra.PrecomputedTxData.new tx (some 0x77190AD9) [] with
       | some (.ok data) => Zebra.sighash data 0x01 none == some (hex digest)

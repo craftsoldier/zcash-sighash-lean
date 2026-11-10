@@ -928,14 +928,61 @@ theorem consumes_readV6 (ctx : Transparent.AuthorizingContext) (v : TxVersion) :
     consumes_bind (consumes_readOrchardBundle .orchard) fun _ =>
     consumes_bind (consumes_readOrchardBundle .ironwood) fun _ => consumes_pure _
 
+/-- A read through a `HashReader` consumes what the read consumes, and returns it. -/
+theorem consumes_hashReader {α : Type} {p : Parser α} (hp : Consumes p) :
+    Consumes (hashReader p) := by
+  intro s aw s' h
+  obtain ⟨a, w⟩ := aw
+  obtain ⟨hp', rfl⟩ := hashReader_eq_some h
+  obtain ⟨w', rfl, hw'⟩ := hp _ _ _ hp'
+  refine ⟨w', rfl, fun r => ?_⟩
+  simp [hashReader, hw' r]
+
+/-- `read_v4` consumes its input. -/
+theorem consumes_readV4 (ctx : Transparent.AuthorizingContext) (v : TxVersion)
+    (consensusBranchId : BitVec 32) : Consumes (readV4 ctx v consensusBranchId) := by
+  have := consumes_readTransparent ctx
+  have := consumes_readArr 32
+  have := consumes_readArr 64
+  have := consumes_readAmount
+  have hs : Consumes readSpendV4 := by
+    have := consumes_readArr 192
+    unfold readSpendV4; consumes_tac
+  have ho : Consumes readOutputV4 := by
+    have := consumes_readArr 192
+    have := consumes_readArr 580
+    have := consumes_readArr 80
+    unfold readOutputV4; consumes_tac
+  have := consumes_readVector hs
+  have := consumes_readVector ho
+  have hj : ∀ g, Consumes (readJsDescription g) := by
+    intro g
+    have : Consumes readU64Amount := by unfold readU64Amount; consumes_tac
+    have := consumes_readArr 192
+    have := consumes_readArr 296
+    have := consumes_readArr 601
+    unfold readJsDescription; consumes_tac
+  have := consumes_readVector (hj v.hasSapling)
+  have : Consumes (readV4Components v.hasSapling) := by
+    unfold readV4Components; consumes_tac
+  unfold readV4
+  consumes_tac
+
+/-- `TxVersion::read` consumes its input. -/
+theorem consumes_readTxVersion : Consumes readTxVersion := by
+  unfold readTxVersion; consumes_tac
+
 /-- `Transaction::read` consumes its input. -/
-theorem consumes_read (ctx : Transparent.AuthorizingContext) : Consumes (read ctx) := by
-  have hv : Consumes readTxVersion := by unfold readTxVersion; consumes_tac
+theorem consumes_read (ctx : Transparent.AuthorizingContext) (bid : BitVec 32) :
+    Consumes (read ctx bid) := by
   have := consumes_readV5 ctx .v5
   have := consumes_readV6 ctx .v6
   unfold read
-  refine consumes_bind hv fun v => ?_
-  cases v <;> consumes_tac
+  refine consumes_bind (consumes_hashReader consumes_readTxVersion) fun ⟨v, _⟩ => ?_
+  cases v <;> first
+    | exact consumes_bind (consumes_hashReader (consumes_readV4 ctx _ bid)) fun _ =>
+        consumes_pure _
+    | consumes_tac
 
 /-! ## Transactions -/
 
@@ -1022,8 +1069,8 @@ theorem readV6_writes {ctx : Transparent.AuthorizingContext} {v : TxVersion} {s 
     it was read from**; in version 6 with an Orchard or Ironwood bundle, under a branch of the
     third Orchard protocol revision (NU6.3 or NU7), as Zebra requires of every version 6
     transaction it parses. -/
-theorem write_eq_read_bytes {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
-    {tx : TransactionData} (h : read ctx s = some (.tx tx, s'))
+theorem write_eq_read_bytes {ctx : Transparent.AuthorizingContext} {bid : BitVec 32}
+    {s s' : List Byte} {tx : TransactionData} (h : read ctx bid s = some (.tx tx, s'))
     (hrev : tx.version = .v6 → tx.orchardBundle.isSome ∨ tx.ironwoodBundle.isSome →
       orchardProtocolRevision tx.consensusBranchId = some .v3) :
     ∃ w, tx.write ([] : VecU8) = .ok w ∧ s = w ++ s' := by
@@ -1041,13 +1088,13 @@ theorem write_eq_read_bytes {ctx : Transparent.AuthorizingContext} {s s' : List 
 
 /-- **Reading what `write` writes of a version 5 or 6 transaction `zcash_primitives` read gives
     the same transaction back**, whatever follows it. -/
-theorem write_read {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
-    {tx : TransactionData} (h : read ctx s = some (.tx tx, s'))
+theorem write_read {ctx : Transparent.AuthorizingContext} {bid : BitVec 32} {s s' : List Byte}
+    {tx : TransactionData} (h : read ctx bid s = some (.tx tx, s'))
     (hrev : tx.version = .v6 → tx.orchardBundle.isSome ∨ tx.ironwoodBundle.isSome →
       orchardProtocolRevision tx.consensusBranchId = some .v3) :
-    ∃ w, tx.write ([] : VecU8) = .ok w ∧ ∀ r, read ctx (w ++ r) = some (.tx tx, r) := by
+    ∃ w, tx.write ([] : VecU8) = .ok w ∧ ∀ r, read ctx bid (w ++ r) = some (.tx tx, r) := by
   obtain ⟨w, hw, rfl⟩ := write_eq_read_bytes h hrev
-  obtain ⟨w', hs, hr⟩ := consumes_read ctx _ _ _ h
+  obtain ⟨w', hs, hr⟩ := consumes_read ctx bid _ _ _ h
   obtain rfl := List.append_cancel_right hs
   exact ⟨w, hw, hr⟩
 
@@ -1060,8 +1107,9 @@ theorem bind_error {α β : Type} (x : IoResult α) {f : α → IoResult β}
     to NU6.2, fails**: `read_v6_bundle` gives the bundle the version `orchard_insecure_v1` or
     `orchard_v2`, which `write_v6_bundle` rejects. Zebra rejects such a transaction when it parses
     it, so every one it parses can be written. -/
-theorem write_v6_earlier {ctx : Transparent.AuthorizingContext} {s s' : List Byte}
-    {tx : TransactionData} (h : read ctx s = some (.tx tx, s')) (hv : tx.version = .v6)
+theorem write_v6_earlier {ctx : Transparent.AuthorizingContext} {bid : BitVec 32}
+    {s s' : List Byte} {tx : TransactionData} (h : read ctx bid s = some (.tx tx, s'))
+    (hv : tx.version = .v6)
     (b : Orchard.Bundle) (hb : tx.orchardBundle = some b)
     (hrev : orchardProtocolRevision tx.consensusBranchId = some .insecureV1 ∨
       orchardProtocolRevision tx.consensusBranchId = some .v2) (buf : VecU8) :

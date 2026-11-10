@@ -2,12 +2,11 @@
 What Zebra's signature digests are. Its rebuild of a transaction keeps every field but the
 consensus branch ID, which becomes the network upgrade's, and the transparent authorization,
 which becomes the coins its inputs spend (`fromTransactionWithBranchId_eq`). That needs no Sprout
-bundle in version 6 and no Ironwood bundle before it, which holds of every transaction
-`Transaction::read` returns (`read_bundles`). For a
-version 5 or 6 transaction, the network upgrade's branch ID must be the transaction's own
-(`precomputedTxData_new_mismatch`), so the rebuild changes only the authorization, and `sighash`
-gives the specification's signature digest of the transaction spending those coins
-(`sighash_shielded_eq`, `sighash_transparent_eq`).
+bundle in version 6 and no Ironwood bundle before it, which holds of every version 5 or 6
+transaction `Transaction::read` returns (`read_bundles`). For a version 5 or 6 transaction, the
+network upgrade's branch ID must be the transaction's own (`precomputedTxData_new_mismatch`), so
+the rebuild changes only the authorization, and `sighash` gives the specification's signature
+digest of the transaction spending those coins (`sighash_shielded_eq`, `sighash_transparent_eq`).
 -/
 module
 
@@ -139,10 +138,11 @@ theorem contextFits_rebuilt {tx : TransactionData} {branchId : BitVec 32}
   obtain ⟨o, ho, rfl⟩ := hs'
   exact hf.scripts o ho
 
-/-- A transaction `Transaction::read` returns has the bundles the rebuild keeps: no Sprout bundle,
-    and an Ironwood bundle only in version 6. -/
-theorem read_bundles {ctx : Transparent.AuthorizingContext} {s s' : List Spec.Byte}
-    {tx : TransactionData} (h : Read.read ctx s = some (.tx tx, s')) :
+/-- A version 5 or 6 transaction `Transaction::read` returns has the bundles the rebuild keeps:
+    no Sprout bundle, and an Ironwood bundle only in version 6. -/
+theorem read_bundles {ctx : Transparent.AuthorizingContext}
+    {bid : BitVec 32} {s s' : List Spec.Byte}
+    {tx : TransactionData} (h : Read.read ctx bid s = some (.tx tx, s')) :
     tx.sproutBundle = none ∧ (tx.version ≠ .v6 → tx.ironwoodBundle = none) := by
   obtain ⟨s₁, ⟨-, ht⟩ | ⟨-, ht⟩⟩ := Read.read_tx h
   · obtain ⟨-, hsp, hiw⟩ := Read.readV5_shape ht
@@ -153,8 +153,9 @@ theorem read_bundles {ctx : Transparent.AuthorizingContext} {s s' : List Spec.By
 /-- **Zebra's `PrecomputedTxData::new`, for a version 5 or 6 transaction `Transaction::read`
     returned, under the network upgrade of its own consensus branch ID, holds the specification's
     digests of that transaction spending `allPreviousOutputs`**, coins that fit it. -/
-theorem precomputedTxData_new_eq {ctx : Transparent.AuthorizingContext} {s s' : List Spec.Byte}
-    {tx : TransactionData} (h : Read.read ctx s = some (.tx tx, s'))
+theorem precomputedTxData_new_eq {ctx : Transparent.AuthorizingContext}
+    {bid : BitVec 32} {s s' : List Spec.Byte}
+    {tx : TransactionData} (h : Read.read ctx bid s = some (.tx tx, s'))
     (allPreviousOutputs : List Output) (hf : CoinsFit tx allPreviousOutputs) :
     ∃ d, PrecomputedTxData.new tx (some tx.consensusBranchId) allPreviousOutputs =
       some (.ok ⟨.zip244 ⟨rebuilt tx tx.consensusBranchId allPreviousOutputs,
@@ -208,8 +209,9 @@ theorem signatureDigest_shielded_congr {t t' : Spec.Transparent} (h : t = t') (v
     spending `allPreviousOutputs` (`hf`; none for a coinbase, as Zebra looks up none). Zebra
     computes it with `HashType::ALL`; any of the six hash types gives the same digest, since the
     shielded digest reads none, and any other panics (`toSighashType?`). -/
-theorem sighash_shielded_eq {ctx : Transparent.AuthorizingContext} {s s' : List Spec.Byte}
-    {tx : TransactionData} (h : Read.read ctx s = some (.tx tx, s'))
+theorem sighash_shielded_eq {ctx : Transparent.AuthorizingContext}
+    {bid : BitVec 32} {s s' : List Spec.Byte}
+    {tx : TransactionData} (h : Read.read ctx bid s = some (.tx tx, s'))
     (allPreviousOutputs : List Output) (hf : CoinsFit tx allPreviousOutputs)
     (ht : Spec.HashType) :
     ∃ data, PrecomputedTxData.new tx (some tx.consensusBranchId) allPreviousOutputs =
@@ -240,8 +242,9 @@ theorem sighash_shielded_eq {ctx : Transparent.AuthorizingContext} {s s' : List 
     even for `SIGHASH_SINGLE` without a corresponding output: ruling that out
     (`SignableInput.Restrictions`) is the signature check's job, as in `transparentSighash?`,
     and Zebra's callback does it before calling `sighash`. -/
-theorem sighash_transparent_eq {ctx : Transparent.AuthorizingContext} {s s' : List Spec.Byte}
-    {tx : TransactionData} (h : Read.read ctx s = some (.tx tx, s'))
+theorem sighash_transparent_eq {ctx : Transparent.AuthorizingContext}
+    {bid : BitVec 32} {s s' : List Spec.Byte}
+    {tx : TransactionData} (h : Read.read ctx bid s = some (.tx tx, s'))
     (allPreviousOutputs : List Output) (hf : CoinsFit tx allPreviousOutputs)
     (b : Transparent.Bundle)
     (hb : (rebuilt tx tx.consensusBranchId allPreviousOutputs).transparentBundle = some b)
